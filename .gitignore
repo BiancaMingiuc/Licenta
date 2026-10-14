@@ -1,1 +1,5 @@
 /backend/firebase_credentials.json
+/backend/data/
+__pycache__/
+*.py[cod]
+.venv/

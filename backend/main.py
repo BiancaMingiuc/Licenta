@@ -1,30 +1,36 @@
-# main.py
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from database import get_whitelist, add_log
-from pydantic import BaseModel
+from app.config.database import initialize_database
+from app.routers import log_router, simulation_router, user_router
 
-app = FastAPI(title="Edge AI Access Control API")
 
-# Configurare CORS pentru a permite accesul din frontend
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    initialize_database()
+    yield
+
+app = FastAPI(
+    title="Edge AI Access Control API",
+    version="0.2.0",
+    lifespan=lifespan,
+)
+
+# Configurare CORS (obligatoriu ca să se poată conecta aplicația frontend de pe telefon sau browser)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-class LogEntry(BaseModel):
-    user_id: str
-    status: str
+# Includerea routerelor pe 3 straturi
+app.include_router(user_router.router)
+app.include_router(log_router.router)
+app.include_router(simulation_router.router)
 
-@app.get("/api/whitelist")
-def fetch_whitelist():
-    """Ruta prin care frontend-ul preia lista de utilizatori din Firebase."""
-    return get_whitelist()
-
-@app.post("/api/logs")
-def create_log(log: LogEntry):
-    """Ruta prin care se salvează o nouă încercare de acces în istoric."""
-    return add_log(log.user_id, log.status)
+@app.get("/")
+def root():
+    return {"message": "Edge AI Access Control API is running successfully!"}
