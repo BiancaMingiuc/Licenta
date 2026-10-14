@@ -1,3 +1,16 @@
-fastapi
-uvicorn[standard]
-httpx
+# Dependențe backend — versiuni fixate pentru reproductibilitate.
+# Fixarea versiunilor este importantă pentru licență: aceleași versiuni
+# trebuie să funcționeze și pe laptop (Windows x86_64) și pe Raspberry Pi
+# (ARM64). O versiune nefixată se poate schimba între două rulări.
+
+# Framework web și server ASGI
+fastapi==0.143.0
+uvicorn[standard]==0.54.0
+
+# Validarea datelor (folosit de schemas/) — era lipsă din fișier,
+# deși codul depinde direct de el
+pydantic==2.13.1
+
+# Client HTTP, necesar DOAR pentru testele automate din tests/.
+# Pe Raspberry Pi poate fi omis dacă nu rulezi teste pe dispozitiv.
+httpx==0.28.1
