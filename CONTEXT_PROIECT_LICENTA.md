@@ -35,30 +35,42 @@ Notificările push de la distanță necesită ca Pi-ul și telefonul să aibă a
 Licenta/
 ├── backend/
 │   ├── main.py
-│   ├── database.py
-│   └── app/
-│       ├── config/firebase.py
-│       ├── repositories/
-│       │   ├── user_repo.py
-│       │   └── log_repo.py
-│       ├── routers/
-│       │   ├── user_router.py
-│       │   └── log_router.py
-│       ├── schemas/
-│       │   ├── user_schema.py
-│       │   └── log_schema.py
-│       └── services/
-│           ├── user_service.py
-│           └── log_service.py
+│   ├── requirements.txt          # versiuni FIXATE
+│   ├── app/
+│   │   ├── config/database.py    # conexiuni + mecanismul de migrare
+│   │   ├── repositories/
+│   │   │   ├── user_repo.py
+│   │   │   └── log_repo.py
+│   │   ├── routers/
+│   │   │   ├── user_router.py
+│   │   │   ├── log_router.py
+│   │   │   └── simulation_router.py
+│   │   ├── schemas/
+│   │   │   ├── user_schema.py
+│   │   │   └── log_schema.py
+│   │   └── services/
+│   │       ├── user_service.py
+│   │       └── log_service.py
+│   ├── tests/
+│   │   ├── test_api.py           # CRUD + simulare
+│   │   └── test_migrations.py    # mecanismul de migrare
+│   ├── tools/
+│   │   └── inspect_db.py         # utilitar de depanare, nu parte din aplicație
+│   └── data/                     # baza SQLite, exclusă din Git
 ├── frontend/
 │   ├── App.tsx
 │   ├── app.json
 │   ├── index.ts
 │   ├── package.json
 │   └── package-lock.json
+├── .venv/                        # mediu virtual Python 3.12
 ├── .gitignore
 └── README.md
 ```
+
+Fișierele versiunii Firestore (`backend/database.py`, `backend/app/config/firebase.py`,
+`backend/firebase_credentials.json`) au fost șterse. Nu există nicio referință
+rămasă la Firebase în backend.
 
 ## Backend — implementat pentru dezvoltare locală fără hardware
 
@@ -102,34 +114,100 @@ Schema logului definește `hub_id`, `camera_id`, `user_id`, `user_name` și `sta
 
 ### SQLite local și simulare fără hardware
 
-Repository-urile active folosesc SQLite, nu Firestore. Schema este inițializată la pornirea FastAPI; baza implicită este `backend/data/access_control.sqlite3`, iar locația poate fi schimbată prin variabila `ACCESS_CONTROL_DB_PATH`. Directorul implicit este exclus din Git. Tabelele `users` și `logs` au indecși pentru hub/cameră/timestamp și utilizator; ștergerea unui utilizator păstrează logurile și setează `user_id` la `NULL`.
+Repository-urile active folosesc SQLite, nu Firestore. Schema este inițializată prin migrări la pornirea FastAPI (vezi secțiunea despre `PRAGMA user_version`); baza implicită este `backend/data/access_control.sqlite3`, iar locația poate fi schimbată prin variabila `ACCESS_CONTROL_DB_PATH`. Directorul implicit este exclus din Git. Tabelele `users` și `logs` au indecși pentru hub/cameră/timestamp și utilizator; ștergerea unui utilizator păstrează logurile și setează `user_id` la `NULL`.
 
-`POST /api/simulation/detection` creează un eveniment simulat autorizat sau refuzat, fără cameră, senzor sau model AI. Pentru eveniment autorizat este necesar un `user_id` existent. Endpointul este destinat dezvoltării, nu constituie recunoaștere sau autorizare reală.
+`POST /api/simulation/detection` creează un eveniment simulat autorizat sau refuzat, fără cameră, senzor sau model AI. Pentru eveniment autorizat este necesar un `user_id` existent. Endpointul este destinat dezvoltării, nu constituie recunoaștere sau autorizare reală. Atenție: primește `authorized` ca boolean de la client și nu verifică `allowed_cameras`, deci nu este un model pentru endpointul real de decizie.
 
-Fișierul `backend/app/config/firebase.py`, vechiul `backend/database.py` și `backend/firebase_credentials.json` sunt artefacte ale variantei Firestore anterioare și nu sunt folosite de rutele active. Credențialele rămân ignorate în Git. Nu copia secretele în cod, documentație, mesaje de eroare sau repository.
+Fișierele versiunii Firestore au fost șterse din proiect. Cheia de serviciu Google care exista în `backend/firebase_credentials.json` trebuie revocată din consola Google Cloud, pentru că a existat pe disc și în istoricul local de checkpoint-uri. Nu copia secrete în cod, documentație, mesaje de eroare sau repository.
 
 SQLite permite dezvoltarea locală pe calculator și poate rula ulterior pe Pi, dar datele nu se sincronizează automat cu Firestore sau cu telefonul. Baza locală singură nu oferă acces remote, push notifications ori o aplicație frontend funcțională.
 
-### Fișier legacy
+### Migrarea schemei (`PRAGMA user_version`)
 
-`backend/database.py` conține o implementare anterioară, separată, cu funcții directe pentru whitelist și loguri. `backend/main.py` actual folosește arhitectura `backend/app/...`, iar acest fișier legacy nu apare în lanțul de import al aplicației. Evită să întreții două implementări paralele; înainte de ștergerea sau reutilizarea lui, verifică dacă există alte referințe.
+Schema nu se mai creează ad-hoc la pornire. `backend/app/config/database.py`
+conține un mecanism de migrare versionat, necesar pentru că schema este
+definită în cod și trebuie aplicată și pe baze care există deja.
 
-### Pornirea backendului
+Problema rezolvată: `CREATE TABLE IF NOT EXISTS` este ignorat complet când
+tabela există, deci o coloană adăugată acolo nu apare niciodată pe o bază
+veche. Codul ar cere coloana, baza nu ar avea-o, iar eroarea `no such column`
+ar apărea direct pe Raspberry Pi.
 
-`main.py` se află în `backend`. Pornește serverul din folderul `backend`:
+Mecanismul:
 
-```powershell
-cd C:\Users\bianc\Desktop\Licenta\backend
-py -3.12 -m uvicorn main:app --reload --port 8000
+- `MIGRATIONS` este o secvență de `(versiune, descriere, instrucțiuni SQL)`.
+- `LATEST_SCHEMA_VERSION` se calculează automat din `MIGRATIONS`.
+- Versiunea fiecărei baze este stocată în fișier, în `PRAGMA user_version`.
+- `initialize_database()` aplică doar migrările cu versiune mai mare decât
+  cea din fișier, în ordine crescătoare, și returnează lista celor aplicate.
+- Fiecare migrare rulează într-o tranzacție explicită `BEGIN`/`COMMIT`
+  împreună cu incrementarea versiunii: ori se aplică integral, ori deloc.
+- O bază cu versiune mai NOUĂ decât codul oprește pornirea cu `RuntimeError`,
+  în loc să scrie într-o schemă necunoscută.
+
+Migrarea 1 este o migrare de bază (*baseline*): folosește `IF NOT EXISTS`, ca
+să funcționeze atât pe o bază goală, cât și pe baza existentă creată înainte
+de introducerea mecanismului (`user_version = 0`, dar tabele prezente). Baza
+reală din `backend/data` a fost adoptată astfel, fără pierdere de date, și
+este acum la versiunea 1.
+
+Regulă de lucru: o migrare deja livrată nu se modifică niciodată, pentru că
+bazele existente au aplicat-o deja și nu o vor mai rula. Orice corecție devine
+o migrare nouă, cu versiune următoare.
+
+Pentru autentificare, următoarea migrare va avea forma:
+
+```python
+(
+    2,
+    "Adaugă password_hash pentru autentificare",
+    ("ALTER TABLE users ADD COLUMN password_hash TEXT",),
+)
 ```
 
-Alternativ, din rădăcina proiectului:
+Mecanismul este acoperit de `backend/tests/test_migrations.py`: bază goală,
+idempotență la a doua pornire, adoptarea unei baze fără versiune cu păstrarea
+datelor, și respingerea unei baze mai noi decât codul.
+
+### Mediul local și pornirea backendului
+
+Mediul virtual `.venv` din rădăcina proiectului este funcțional și conține
+pachetele din `backend/requirements.txt`, cu **versiuni fixate**. Fixarea
+este necesară pentru reproductibilitate: aceleași versiuni trebuie să
+funcționeze pe laptop (Windows x86_64) și pe Raspberry Pi (ARM64).
+
+Rutina de pornire:
 
 ```powershell
-py -3.12 -m uvicorn main:app --app-dir backend --reload --port 8000
+cd C:\Users\bianc\Desktop\Licenta
+.\.venv\Scripts\Activate.ps1
+cd backend
+python -m uvicorn main:app --reload --port 8000
 ```
 
-Comanda `uvicorn main:app` executată din rădăcină fără `--app-dir backend` nu găsește modulul `main`. Python 3.12 este folosit în mediul local. Pachetele backendului sunt declarate în `backend/requirements.txt`.
+După activare promptul afișează `(.venv)`, iar comanda `python` folosește
+interpretorul din mediul virtual. Activarea este valabilă doar în fereastra
+curentă de terminal.
+
+Capcane de mediu, verificate:
+
+- Pe acest laptop există Python 3.12 **și** 3.14. Comanda `py` fără argument
+  pornește 3.14, care nu are pachetele proiectului. Fără venv activat,
+  versiunea corectă se invocă explicit: `py -3.12`.
+- `main.py` se află în `backend`, iar importurile sunt de forma
+  `from app.config...`. Pornirea din rădăcină fără `--app-dir backend` nu
+  găsește modulul `main`.
+- Dacă `Activate.ps1` este blocat de politica de execuție Windows, se
+  rezolvă o singură dată cu
+  `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
+
+Testele automate, din folderul `backend`:
+
+```powershell
+python -m unittest discover -s tests -v
+```
+
+Starea curentă: 7 teste, toate trec (3 pentru API/simulare, 4 pentru migrări).
 
 ## Frontend — instalat, interfața încă neimplementată
 
@@ -159,10 +237,48 @@ Pentru testarea de pe un telefon, adresa API nu va fi `127.0.0.1` de pe telefon;
 
 | Fază | Stare | Detalii |
 |---|---|---|
-| 1. Backend și DB | Backend local pentru dezvoltare implementat | FastAPI, CRUD whitelist, loguri SQLite locale și endpoint de simulare; teste automate pentru CRUD/simulare. Mai trebuie validat pe Raspberry Pi și cu test offline/restart pe mediul țintă. |
-| 2. Frontend Expo | Proiect inițializat, UI neimplementată | Pachetele sunt instalate și type-check/configurația trec; ecranul curent este placeholder și nu consumă backendul. |
-| 3. AI și hardware | Neîncepută | Nu există încă pipeline OpenCV/Tiny-ResNet, cosine similarity, GPIO, integrare senzori sau baseline măsurat. |
+| 1. Backend și DB | CRUD funcțional, securitate absentă | FastAPI pe 3 straturi, CRUD whitelist, loguri SQLite, endpoint de simulare, migrări versionate, 7 teste automate. **Lipsesc autentificarea, aplicarea RBAC și verificarea per cameră.** Mai trebuie validat pe Raspberry Pi și cu test offline/restart. |
+| 2. Frontend Expo | Proiect inițializat, UI neimplementată | Pachetele sunt instalate și type-check/configurația trec; ecranul curent este placeholder și nu consumă backendul. Blocat de absența autentificării: primul ecran este login-ul. |
+| 3. AI și hardware | Neîncepută | Nu există încă pipeline OpenCV/Tiny-ResNet, cosine similarity, GPIO sau baseline măsurat. |
 | 4. Optimizări C/C++ | Neîncepută | Nu există încă extensie Cython/C++, IM2COL pe blocuri, cache blocking, NEON sau layer fusion. |
+
+## Lipsuri cunoscute în Faza 1
+
+Acestea sunt identificate și neremediate. Ordinea reflectă dependențele.
+
+1. **Autentificare inexistentă.** Rolurile `ADMIN` / `APP_USER` /
+   `PHYSICAL_ONLY` sunt doar coloane în baza de date. Nicio rută nu verifică
+   identitatea apelantului: orice client din rețea poate crea un ADMIN sau
+   șterge whitelist-a. Firebase Authentication și Security Rules ofereau
+   această funcționalitate; după trecerea la SQLite, autorizarea devine
+   responsabilitatea stratului service. Blochează Faza 2.
+2. **`response_model` nedeclarat pe rute.** `GET /api/whitelist/` returnează
+   vectorul biometric (`embedding`) al fiecărui utilizator către orice
+   client. Necesită un model de ieșire separat, fără acest câmp.
+3. **`allowed_cameras` nu este verificat nicăieri.** Multi-camera este
+   deocamdată doar persistență, nu control de acces. Lipsește și o entitate
+   `cameras` care să valideze că un `camera_id` există.
+4. **Nu există endpoint real de decizie.** Bucla de pe Raspberry Pi va avea
+   nevoie de un `POST /api/access/evaluate` care primește `hub_id`,
+   `camera_id` și embedding, compară, verifică permisiunea camerei, scrie
+   logul și returnează decizia, cu comportament *fail-closed*.
+   `/api/simulation/detection` are forma greșită pentru asta.
+5. **`HTTPException` este ridicat în stratul service.** În Faza 3 bucla Edge
+   AI va apela serviciile direct, în proces, fără HTTP, iar codurile de stare
+   devin lipsite de sens. Traducerea în HTTP ar trebui făcută prin excepții
+   de domeniu și `exception_handler` în `main.py`.
+6. **`GET /api/logs/` nu are paginare.** O cameră care rulează 24/7 scrie
+   continuu; lista completă va fi returnată integral la fiecare cerere.
+7. **`CORSMiddleware` cu `allow_origins=["*"]`** pe un API care comandă o
+   încuietoare fizică.
+8. **`UserUpdate` filtrează pe `v is not None`**, deci `email` nu poate fi
+   golit, `embedding` nu poate fi resetat, iar `has_app_access: false`
+   trimis singur este ignorat. Corect ar fi `model_dump(exclude_unset=True)`.
+9. **Două fișiere `.pyc` sunt încă urmărite de Git**
+   (`backend/__pycache__/*.pyc`), intrate înainte de regula din
+   `.gitignore`; necesită `git rm --cached`.
+10. **Cheia de serviciu Google nu a fost revocată.** Fișierul a fost șters,
+    dar cheia poate fi activă în continuare în Google Cloud.
 
 ## Plan: persistență locală și operare offline
 
@@ -223,9 +339,32 @@ Dacă ulterior se cere replicarea în cloud, trateaz-o ca un strat separat: coad
 
 ## Următorii pași recomandați
 
-1. Confirmă SQLite local ca sursă de adevăr pentru utilizatori și loguri pe Raspberry Pi.
-2. Migrarea Firestore nu este încă implementată; adaug-o numai dacă există date reale de păstrat.
-3. Construiește ecranele Expo pentru dashboard, whitelist și loguri; conectează-le la API și configurează URL-ul de bază separat de codul UI.
-4. Extinde simularea doar cât este necesar pentru dezvoltare și teste; păstreaz-o clar separată de API-ul și deciziile reale ale camerei.
-5. Validează backendul pe Raspberry Pi când hardware-ul devine disponibil și demonstrează persistența după restart și funcționarea fără internet.
-6. Abia după ce fazele 1 și 2 funcționează end-to-end, începe pipeline-ul AI de bază și colectează măsurători de referință pentru RAM, latență și FPS înaintea optimizărilor.
+Ordinea respectă dependențele reale, nu preferințele.
+
+1. **Autentificare și aplicarea RBAC.** Migrarea 2 adaugă `password_hash`;
+   autentificare cu email + parolă (hash bcrypt), token JWT, și o dependență
+   FastAPI care verifică rolul pe fiecare rută. `PHYSICAL_ONLY` nu primește
+   parolă prin construcție, deci nu se poate autentifica niciodată — al
+   treilea nivel RBAC rezultă din schemă, nu din cod special.
+2. **`response_model` pe toate rutele**, ca `embedding` să nu mai fie
+   returnat către clienți.
+3. **Entitate `cameras` și verificarea permisiunilor per cameră**, ca
+   `allowed_cameras` să însemne control de acces, nu doar date salvate.
+4. **`POST /api/access/evaluate`** — contractul pe care îl va apela bucla de
+   pe Pi, cu decizie *fail-closed*.
+5. **Excepții de domeniu în loc de `HTTPException` în service**, ca
+   serviciile să fie reutilizabile de motorul Edge AI, care nu vorbește HTTP.
+6. **Paginare pe loguri.**
+7. **Ecranele Expo** (login, dashboard, whitelist, loguri), cu URL-ul de bază
+   al API-ului configurat separat de codul UI. Pentru testarea de pe telefon
+   este nevoie de adresa IP locală a calculatorului și de o regulă de
+   firewall; `127.0.0.1` nu funcționează de pe telefon.
+8. **Validare pe Raspberry Pi**: persistență după restart și funcționare fără
+   internet.
+9. **Abia apoi** pipeline-ul AI de bază, cu măsurători de referință pentru
+   RAM, latență și FPS colectate ÎNAINTE de orice optimizare C/C++.
+   Fără aceste cifre, Faza 4 nu are cu ce să se compare.
+
+Regulă de întreținere: acest document se actualizează după fiecare etapă.
+Este singura apărare împotriva pierderii contextului între sesiuni de lucru
+cu unelte diferite.

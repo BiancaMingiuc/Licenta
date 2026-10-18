@@ -4,25 +4,39 @@ Aplicația poate fi dezvoltată și testată pe calculator fără Raspberry Pi. 
 
 ## Backend local
 
-Python 3.12 este folosit în mediul de dezvoltare curent. Din PowerShell:
+Python 3.12 este folosit în mediul de dezvoltare curent, într-un mediu virtual
+(`.venv`) din rădăcina proiectului. Din PowerShell:
 
 ```powershell
-cd C:\Users\bianc\Desktop\Licenta\backend
-py -3.12 -m pip install -r requirements.txt
-py -3.12 -m uvicorn main:app --reload --port 8000
+cd C:\Users\bianc\Desktop\Licenta
+.\.venv\Scripts\Activate.ps1
+py -3.12 -m pip install -r backend\requirements.txt
+cd backend
+python -m uvicorn main:app --reload --port 8000
 ```
 
-La prima pornire, baza SQLite se creează automat la `backend/data/access_control.sqlite3`. Pentru a folosi altă locație, setează `ACCESS_CONTROL_DB_PATH` înainte de pornire.
+Instalarea pachetelor este necesară doar la prima rulare sau după modificarea
+`requirements.txt`. După activare, promptul afișează `(.venv)`; activarea este
+valabilă doar în fereastra curentă de terminal.
 
-Documentația API este disponibilă la `http://127.0.0.1:8000/docs`.
+Serverul trebuie pornit din folderul `backend`, pentru că `main.py` se află
+acolo și importurile sunt de forma `from app.config...`.
+
+La prima pornire, baza SQLite se creează automat la `backend/data/access_control.sqlite3`, prin mecanismul de migrare versionat din `backend/app/config/database.py`. Pentru a folosi altă locație, setează `ACCESS_CONTROL_DB_PATH` înainte de pornire.
+
+Documentația API este disponibilă la [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
 
 ## Testare fără hardware
 
-Din folderul `backend`:
+Din folderul `backend`, cu venv activat:
 
 ```powershell
-py -3.12 -m unittest discover -s tests -v
+python -m unittest discover -s tests -v
 ```
+
+7 teste: CRUD utilizatori cu sincronizarea rolului, simulare autorizată și
+refuzată, păstrarea istoricului la ștergerea unui utilizator, și patru teste
+pentru mecanismul de migrare a schemei.
 
 Adaugă un utilizator prin `POST /api/whitelist/`, apoi simulează un eveniment autorizat:
 
