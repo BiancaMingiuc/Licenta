@@ -7,8 +7,12 @@ from fastapi import HTTPException
 
 from app.repositories.log_repo import LogRepository
 from app.repositories.user_repo import UserRepository
-from app.schemas.access_schema import DetectionReason
-from app.schemas.log_schema import LogCreate
+from app.schemas.detection_schema import (
+    REASONS_WITH_UNIDENTIFIED_PERSON,
+    DetectionReason,
+    describe_identity_conflict,
+)
+from app.schemas.log_schema import UNKNOWN_PERSON_NAME, LogCreate
 
 MAX_PAGE_SIZE = 500
 DEFAULT_PAGE_SIZE = 100
@@ -57,6 +61,13 @@ class LogService:
         }
 
     def create_log(self, log: LogCreate, hub_id: Optional[str] = None) -> dict[str, Any]:
+        """Write one journal entry, refusing a self-contradictory one.
+
+        The coherence rule is enforced HERE rather than in the router so no
+        other caller can bypass it, and it is expressed in
+        ``describe_identity_conflict`` rather than inline so the detection
+        service and this route cannot drift apart.
+        """
         log_data = log.model_dump()
         if hub_id is not None:
             log_data["hub_id"] = hub_id
@@ -64,6 +75,11 @@ class LogService:
         if log_data["user_id"] == "UNKNOWN":
             log_data["user_id"] = None
 
+        conflict = describe_identity_conflict(log_data["status"], log_data["user_id"])
+        if conflict is not None:
+            raise HTTPException(status_code=422, detail=conflict)
+
+        user = None
         if log_data["user_id"]:
             user = self.user_repo.get_by_id(log_data["user_id"])
             if user is None:
@@ -78,6 +94,17 @@ class LogService:
                     status_code=422,
                     detail="The person does not belong to this event's hub.",
                 )
+
+        # The displayed name is DERIVED, never trusted from the client: a row
+        # saying "KNOWN" while naming someone other than the referenced person
+        # would be worse than a missing row, because it reads as evidence.
+        if user is not None:
+            log_data["user_name"] = user["name"]
+        elif log_data["status"] in REASONS_WITH_UNIDENTIFIED_PERSON:
+            log_data["user_name"] = UNKNOWN_PERSON_NAME
+        else:
+            # A fault involves no person at all, so naming one is misleading.
+            log_data["user_name"] = None
 
         return self.repo.create(log_data)
 

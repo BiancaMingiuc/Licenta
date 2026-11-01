@@ -242,5 +242,108 @@ class JournalPurgeTests(AuthenticatedApiTestCase):
         self.assertEqual(await self._total(), 2)
 
 
+class JournalCoherenceTests(AuthenticatedApiTestCase):
+    """The status and the identity of an event must agree.
+
+    These guard a real incident: a row reading "status=INTRUDER,
+    user_name=Bianca" was written through POST /api/logs/ during development.
+    An intruder is by definition a person who was NOT identified, so that row
+    is self-contradictory -- and it silently corrupts any count of intruder
+    alerts, which is a figure the thesis evaluation chapter reports.
+    """
+
+    async def test_intruder_cannot_carry_an_identity(self):
+        response = await self.client.post(
+            "/api/logs/",
+            json={"status": "INTRUDER", "user_id": self.admin["id"]},
+            headers=self.admin_auth,
+        )
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertIn("user_id must be empty", response.json()["detail"])
+
+    async def test_fault_cannot_carry_an_identity(self):
+        response = await self.client.post(
+            "/api/logs/",
+            json={"status": "DEGRADED", "user_id": self.admin["id"]},
+            headers=self.admin_auth,
+        )
+        self.assertEqual(response.status_code, 422, response.text)
+
+    async def test_known_requires_an_identity(self):
+        response = await self.client.post(
+            "/api/logs/",
+            json={"status": "KNOWN"},
+            headers=self.admin_auth,
+        )
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertIn("user_id is required", response.json()["detail"])
+
+    async def test_unexpected_zone_requires_an_identity(self):
+        response = await self.client.post(
+            "/api/logs/",
+            json={"status": "UNEXPECTED_ZONE"},
+            headers=self.admin_auth,
+        )
+        self.assertEqual(response.status_code, 422, response.text)
+
+    async def test_the_displayed_name_is_derived_not_trusted(self):
+        """A client-supplied name must not be able to misattribute an event."""
+        response = await self.client.post(
+            "/api/logs/",
+            json={
+                "status": "KNOWN",
+                "user_id": self.admin["id"],
+                "user_name": "Somebody Else",
+            },
+            headers=self.admin_auth,
+        )
+        self.assertEqual(response.status_code, 201, response.text)
+        self.assertEqual(response.json()["user_name"], self.admin["name"])
+
+    async def test_a_fault_names_nobody(self):
+        response = await self.client.post(
+            "/api/logs/",
+            json={"status": "CAMERA_DISABLED", "user_name": "Unknown Person"},
+            headers=self.admin_auth,
+        )
+        self.assertEqual(response.status_code, 201, response.text)
+        # A fault involves no person, so naming one would be misleading.
+        self.assertIsNone(response.json()["user_name"])
+
+    async def test_an_unidentified_person_gets_the_placeholder_name(self):
+        response = await self.client.post(
+            "/api/logs/",
+            json={"status": "EMPTY_WHITELIST", "user_name": ""},
+            headers=self.admin_auth,
+        )
+        self.assertEqual(response.status_code, 201, response.text)
+        self.assertEqual(response.json()["user_name"], "Unknown Person")
+
+    async def test_the_literal_unknown_sentinel_still_works(self):
+        """`user_id: "UNKNOWN"` is accepted and normalised to no identity."""
+        response = await self.client.post(
+            "/api/logs/",
+            json={"status": "INTRUDER", "user_id": "UNKNOWN"},
+            headers=self.admin_auth,
+        )
+        self.assertEqual(response.status_code, 201, response.text)
+        self.assertIsNone(response.json()["user_id"])
+
+    async def test_the_detection_service_never_produces_an_incoherent_row(self):
+        """Every reason the service can emit satisfies the same invariant."""
+        from app.schemas.detection_schema import (
+            OUTCOME_BY_REASON,
+            REASONS_WITH_IDENTITY,
+            describe_identity_conflict,
+        )
+
+        for reason in OUTCOME_BY_REASON:
+            identity = "some-person-id" if reason in REASONS_WITH_IDENTITY else None
+            self.assertIsNone(
+                describe_identity_conflict(reason, identity),
+                f"{reason} is not covered by the coherence rule",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

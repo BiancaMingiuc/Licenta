@@ -5,7 +5,7 @@ from typing import Any, List, Optional
 
 from pydantic import BaseModel, Field
 
-from app.schemas.access_schema import DetectionReason
+from app.schemas.detection_schema import DetectionReason
 
 UNKNOWN_PERSON_NAME = "Unknown Person"
 
@@ -25,6 +25,16 @@ class LogCreate(BaseModel):
     so the journal cannot drift away from what the detection service produces.
     The default is the fail-loud one: an event whose reason was not stated is
     treated as an intruder, not as a known person.
+
+    ``user_name`` is accepted but DERIVED on write: the service replaces it
+    with the referenced person's name, with the placeholder for an
+    unidentified person, or with NULL for a fault. A journal row that named
+    someone other than the person it points at would read as evidence while
+    being false.
+
+    ``status`` and ``user_id`` must agree -- see
+    ``describe_identity_conflict``. A row saying "INTRUDER" while naming a
+    person is refused, because an intruder is by definition unidentified.
     """
 
     hub_id: str = "HUB_001"

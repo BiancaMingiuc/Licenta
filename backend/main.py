@@ -9,9 +9,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config.database import initialize_database
 from app.config.security import validate_security_configuration
 from app.routers import (
-    access_router,
     auth_router,
     camera_router,
+    detection_router,
     log_router,
     simulation_router,
     user_router,
@@ -85,7 +85,7 @@ app.include_router(auth_router.router)
 app.include_router(user_router.router)
 app.include_router(camera_router.router)
 app.include_router(log_router.router)
-app.include_router(access_router.router)
+app.include_router(detection_router.router)
 app.include_router(simulation_router.router)
 
 

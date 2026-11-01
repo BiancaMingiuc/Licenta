@@ -54,12 +54,25 @@ def get_logs(
     "/",
     status_code=status.HTTP_201_CREATED,
     summary="Create an event manually (administration/development)",
+    responses={
+        422: {
+            "description": (
+                "The status and the identity contradict each other: KNOWN and "
+                "UNEXPECTED_ZONE require a user_id, every other status "
+                "requires none."
+            )
+        },
+    },
 )
 def add_log(log: LogCreate, current_user: CurrentUser = Depends(require_admin)):
     """Writing to the journal by hand is reserved for ADMIN.
 
     In phase 3 the recognition loop on the Raspberry Pi will write events by
     calling ``LogService`` directly, in-process, not through this HTTP route.
+
+    ``user_name`` sent by the client is ignored: it is derived from the
+    referenced person, so the journal cannot name someone other than the
+    person it points at.
     """
     return service.create_log(log, hub_id=current_user.hub_id)
 
