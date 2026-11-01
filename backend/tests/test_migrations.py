@@ -1,10 +1,10 @@
-"""Teste pentru mecanismul de migrare a schemei SQLite.
+"""Tests for the SQLite schema migration mechanism.
 
-Rulare (din folderul backend, cu venv activat):
+Run (from the backend folder, with the venv active):
     python -m unittest discover -s tests -v
 
-Fiecare test lucrează pe o bază temporară proprie, deci baza reală din
-backend/data nu este atinsă.
+Every test works on its own temporary database, so the real database under
+backend/data is never touched.
 """
 
 import os
@@ -57,30 +57,21 @@ class MigrationTests(unittest.TestCase):
         finally:
             connection.close()
 
-    def test_empty_database_is_migrated_to_latest_version(self):
-        """O bază inexistentă este creată și adusă la versiunea curentă."""
-        applied = initialize_database()
+    def _query_one(self, sql: str, parameters: tuple = ()):
+        connection = sqlite3.connect(self.database_path)
+        try:
+            return connection.execute(sql, parameters).fetchone()
+        finally:
+            connection.close()
 
-        self.assertEqual(applied, [1])
-        self.assertEqual(self._user_version(), LATEST_SCHEMA_VERSION)
-        self.assertEqual(self._table_names(), ["logs", "users"])
+    def _seed_legacy_database(self) -> None:
+        """Build a database as it looked BEFORE migrations were introduced.
 
-    def test_second_run_applies_nothing(self):
-        """Pornirea repetată a aplicației nu reaplică migrările (idempotență)."""
-        initialize_database()
-        applied_again = initialize_database()
-
-        self.assertEqual(applied_again, [])
-        self.assertEqual(self._user_version(), LATEST_SCHEMA_VERSION)
-
-    def test_legacy_database_without_version_is_adopted_without_data_loss(self):
-        """Bază creată ÎNAINTE de introducerea migrărilor.
-
-        Tabelele există, dar user_version este 0. Migrarea de bază trebuie să
-        marcheze versiunea fără să șteargă datele existente — acesta este
-        exact cazul bazei reale din backend/data.
+        The tables exist but user_version is 0, and crucially there are no
+        CHECK constraints, so the pre-D3 vocabulary can still be inserted.
+        This is what makes it possible to test the data translation performed
+        by migration 4 on a database that already holds rows.
         """
-        # Simulăm o bază veche: tabele create manual, fără user_version.
         connection = sqlite3.connect(self.database_path)
         connection.executescript(
             """
@@ -104,33 +95,132 @@ class MigrationTests(unittest.TestCase):
                 timestamp TEXT NOT NULL
             );
             INSERT INTO users (id, hub_id, name, role, has_app_access, allowed_cameras)
-            VALUES ('u1', 'HUB_001', 'Utilizator existent', 'ADMIN', 1, '["cam_intrare"]');
+            VALUES ('u1', 'HUB_001', 'Existing Person', 'ADMIN', 1, '["cam_intrare"]');
             """
         )
         connection.commit()
         connection.close()
 
+    def test_empty_database_is_migrated_to_latest_version(self):
+        """A non-existent database is created and brought to the current version."""
+        applied = initialize_database()
+
+        # The expected list is derived from MIGRATIONS rather than hard-coded:
+        # otherwise every new migration would break this test for no real
+        # reason.
+        self.assertEqual(applied, list(range(1, LATEST_SCHEMA_VERSION + 1)))
+        self.assertEqual(self._user_version(), LATEST_SCHEMA_VERSION)
+        self.assertEqual(self._table_names(), ["cameras", "logs", "users"])
+
+    def test_second_run_applies_nothing(self):
+        """Starting the application again does not reapply migrations."""
+        initialize_database()
+        applied_again = initialize_database()
+
+        self.assertEqual(applied_again, [])
+        self.assertEqual(self._user_version(), LATEST_SCHEMA_VERSION)
+
+    def test_legacy_database_without_version_is_adopted_without_data_loss(self):
+        """A database created BEFORE migrations existed.
+
+        The baseline migration must record the version without deleting
+        existing data -- which is exactly the case of the real database under
+        backend/data.
+        """
+        self._seed_legacy_database()
         self.assertEqual(self._user_version(), 0)
 
         applied = initialize_database()
 
-        self.assertEqual(applied, [1])
+        self.assertEqual(applied, list(range(1, LATEST_SCHEMA_VERSION + 1)))
         self.assertEqual(self._user_version(), LATEST_SCHEMA_VERSION)
 
-        # Datele existente trebuie să fie intacte.
+        # Existing data must be intact.
+        self.assertEqual(
+            self._query_one("SELECT name FROM users WHERE id = 'u1'")[0],
+            "Existing Person",
+        )
+
+    def test_migration_translates_the_pre_d3_vocabulary(self):
+        """Decision D3 renamed the vocabulary; existing rows must follow.
+
+        Without this, an upgraded database would keep rows the current schema
+        rejects, and the journal would mix two vocabularies -- which would
+        make the counts in the thesis evaluation chapter meaningless.
+        """
+        self._seed_legacy_database()
+        connection = sqlite3.connect(self.database_path)
+        # The Romanian literals here are the OLD values, deliberately kept:
+        # they are the input of the translation under test, not text to
+        # localise. Changing them would make the test pass while proving
+        # nothing.
+        connection.executescript(
+            """
+            INSERT INTO users (id, hub_id, name, role, has_app_access, allowed_cameras)
+            VALUES ('u2', 'HUB_001', 'Enrolled Person', 'PHYSICAL_ONLY', 0,
+                    '["cam_intrare"]');
+            INSERT INTO logs (id, hub_id, camera_id, user_id, user_name, status, timestamp)
+            VALUES ('l1', 'HUB_001', 'cam_intrare', 'u2', 'Enrolled Person',
+                    'GRANTED', '2026-10-01T10:00:00Z');
+            INSERT INTO logs (id, hub_id, camera_id, user_id, user_name, status, timestamp)
+            VALUES ('l2', 'HUB_001', 'cam_intrare', NULL, 'Persoană Necunoscută',
+                    'DENIED', '2026-10-01T11:00:00Z');
+            """
+        )
+        connection.commit()
+        connection.close()
+
+        initialize_database()
+
+        # Role renamed.
+        self.assertEqual(self._query_one("SELECT role FROM users WHERE id = 'u2'")[0], "MONITORED")
+        # Camera id renamed, including inside the JSON permission list.
+        self.assertEqual(
+            self._query_one("SELECT allowed_cameras FROM users WHERE id = 'u2'")[0],
+            '["cam_entrance"]',
+        )
+        # Journal statuses translated: a granted entry becomes KNOWN, and a
+        # denial with no identified person becomes an intruder alert.
+        self.assertEqual(self._query_one("SELECT status FROM logs WHERE id = 'l1'")[0], "KNOWN")
+        self.assertEqual(self._query_one("SELECT status FROM logs WHERE id = 'l2'")[0], "INTRUDER")
+        # Placeholder name translated as well.
+        self.assertEqual(
+            self._query_one("SELECT user_name FROM logs WHERE id = 'l2'")[0],
+            "Unknown Person",
+        )
+        self.assertEqual(
+            self._query_one("SELECT camera_id FROM logs WHERE id = 'l1'")[0],
+            "cam_entrance",
+        )
+
+    def test_old_vocabulary_is_rejected_by_the_schema(self):
+        """The rename is enforced by a constraint, not merely applied once.
+
+        Without the CHECK, any later code path could reintroduce the old
+        value and the translation above would be undone silently.
+        """
+        initialize_database()
         connection = sqlite3.connect(self.database_path)
         try:
-            name = connection.execute(
-                "SELECT name FROM users WHERE id = 'u1'"
-            ).fetchone()[0]
+            with self.assertRaises(sqlite3.IntegrityError):
+                connection.execute(
+                    "INSERT INTO users (id, hub_id, name, role, has_app_access,"
+                    " allowed_cameras) VALUES (?,?,?,?,?,?)",
+                    ("u9", "HUB_001", "Old Role", "PHYSICAL_ONLY", 0, "[]"),
+                )
+            with self.assertRaises(sqlite3.IntegrityError):
+                connection.execute(
+                    "INSERT INTO logs (id, hub_id, camera_id, status, timestamp)"
+                    " VALUES (?,?,?,?,?)",
+                    ("l9", "HUB_001", "cam_entrance", "GRANTED", "2026-10-01T10:00:00Z"),
+                )
         finally:
             connection.close()
-        self.assertEqual(name, "Utilizator existent")
 
     def test_database_newer_than_code_is_rejected(self):
-        """O bază migrată de o versiune mai nouă a codului oprește pornirea.
+        """A database migrated by newer code must stop startup.
 
-        Continuarea ar însemna scrieri într-o schemă necunoscută.
+        Continuing would mean writing into an unknown schema.
         """
         initialize_database()
 
@@ -142,8 +232,8 @@ class MigrationTests(unittest.TestCase):
         finally:
             connection.close()
 
-        # Mesajul trebuie să spună clar ce versiune are baza și ce versiune
-        # cunoaște codul, altfel eroarea nu e diagnosticabilă pe Pi.
+        # The message must state both the database version and the version the
+        # code knows about, otherwise the error is not diagnosable on the Pi.
         message = str(context.exception)
         self.assertIn(str(LATEST_SCHEMA_VERSION + 5), message)
         self.assertIn(str(LATEST_SCHEMA_VERSION), message)

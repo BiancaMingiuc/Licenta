@@ -1,87 +1,245 @@
-import os
-import tempfile
+"""Tests for CRUD, simulation, pagination and bulk deletion of the journal."""
+
 import unittest
-from pathlib import Path
-from unittest.mock import patch
 
-from httpx import ASGITransport, AsyncClient
-
-from app.config.database import initialize_database
-from main import app
+from tests.base import DEFAULT_CAMERA_ID, AuthenticatedApiTestCase
 
 
-class LocalApiTests(unittest.IsolatedAsyncioTestCase):
-    async def asyncSetUp(self):
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.database_path = Path(self.temp_dir.name) / "test.sqlite3"
-        self.database_override = patch.dict(
-            os.environ,
-            {"ACCESS_CONTROL_DB_PATH": str(self.database_path)},
-        )
-        self.database_override.start()
-        initialize_database()
-        self.client = AsyncClient(
-            transport=ASGITransport(app=app),
-            base_url="http://test",
-        )
-
-    async def asyncTearDown(self):
-        await self.client.aclose()
-        self.database_override.stop()
-        self.temp_dir.cleanup()
-
+class LocalApiTests(AuthenticatedApiTestCase):
     async def test_user_crud_and_role_access(self):
-        response = await self.client.post(
-            "/api/whitelist/",
-            json={"name": "Administrator", "role": "ADMIN"},
+        user = await self.create_user(
+            name="Monitored Person",
+            role="MONITORED",
         )
-        self.assertEqual(response.status_code, 200)
-        user = response.json()
-        self.assertTrue(user["has_app_access"])
+        self.assertFalse(user["has_app_access"])
+        # The biometric vector must never appear in a response.
+        self.assertNotIn("embedding", user)
+        self.assertNotIn("password_hash", user)
+        self.assertFalse(user["has_embedding"])
 
-        listed = (await self.client.get("/api/whitelist/")).json()
-        self.assertEqual([entry["id"] for entry in listed], [user["id"]])
+        listed = (await self.client.get("/api/whitelist/", headers=self.admin_auth)).json()
+        self.assertIn(user["id"], [entry["id"] for entry in listed])
 
-        updated = await self.client.put(
+        # Promotion to APP_USER requires an email and a password.
+        promoted = await self.client.put(
             f"/api/whitelist/{user['id']}",
-            json={"role": "PHYSICAL_ONLY"},
+            json={
+                "role": "APP_USER",
+                "email": "promoted@example.com",
+                "password": "new-password-1",
+            },
+            headers=self.admin_auth,
         )
-        self.assertEqual(updated.status_code, 200)
-        self.assertFalse(updated.json()["has_app_access"])
+        self.assertEqual(promoted.status_code, 200, promoted.text)
+        self.assertTrue(promoted.json()["has_app_access"])
 
-    async def test_simulated_detection_and_user_deletion_keep_history(self):
-        user = (await self.client.post(
-            "/api/whitelist/",
-            json={"name": "Authorized Person", "role": "APP_USER"},
-        )).json()
+        # Demotion withdraws application access.
+        demoted = await self.client.put(
+            f"/api/whitelist/{user['id']}",
+            json={"role": "MONITORED"},
+            headers=self.admin_auth,
+        )
+        self.assertEqual(demoted.status_code, 200, demoted.text)
+        self.assertFalse(demoted.json()["has_app_access"])
+
+    async def test_simulated_detection_and_deletion_keep_history(self):
+        user = await self.create_user(
+            name="Expected Person",
+            role="APP_USER",
+            email="expected@example.com",
+            password="user-password-123",
+        )
         detection = await self.client.post(
             "/api/simulation/detection",
-            json={"authorized": True, "user_id": user["id"]},
+            json={"expected": True, "user_id": user["id"]},
+            headers=self.admin_auth,
         )
-        self.assertEqual(detection.status_code, 200)
-        self.assertEqual(detection.json()["decision"], "GRANTED")
+        self.assertEqual(detection.status_code, 201, detection.text)
+        self.assertEqual(detection.json()["reason"], "KNOWN")
 
-        deletion = await self.client.delete(f"/api/whitelist/{user['id']}")
-        self.assertEqual(deletion.status_code, 200)
+        deletion = await self.client.delete(
+            f"/api/whitelist/{user['id']}",
+            headers=self.admin_auth,
+        )
+        self.assertEqual(deletion.status_code, 200, deletion.text)
 
-        logs = (await self.client.get("/api/logs/")).json()
-        self.assertEqual(len(logs), 1)
-        self.assertIsNone(logs[0]["user_id"])
-        self.assertEqual(logs[0]["user_name"], "Authorized Person")
+        # The journal keeps the event and the name, but loses the link: an
+        # audit record must survive the removal of its subject.
+        page = (await self.client.get("/api/logs/", headers=self.admin_auth)).json()
+        self.assertEqual(page["total"], 1)
+        self.assertIsNone(page["items"][0]["user_id"])
+        self.assertEqual(page["items"][0]["user_name"], "Expected Person")
 
-    async def test_unauthorized_simulated_detection_is_saved(self):
+    async def test_simulated_intruder_detection_is_saved(self):
         detection = await self.client.post(
             "/api/simulation/detection",
-            json={"authorized": False},
+            json={"expected": False},
+            headers=self.admin_auth,
         )
-        self.assertEqual(detection.status_code, 200)
+        self.assertEqual(detection.status_code, 201, detection.text)
         event = detection.json()["event"]
-        self.assertEqual(event["status"], "DENIED")
+        self.assertEqual(event["status"], "INTRUDER")
         self.assertIsNone(event["user_id"])
 
-        logs = (await self.client.get("/api/logs/?camera_id=cam_intrare")).json()
-        self.assertEqual(len(logs), 1)
-        self.assertEqual(logs[0]["id"], event["id"])
+        page = (
+            await self.client.get(
+                f"/api/logs/?camera_id={DEFAULT_CAMERA_ID}", headers=self.admin_auth
+            )
+        ).json()
+        self.assertEqual(page["total"], 1)
+        self.assertEqual(page["items"][0]["id"], event["id"])
+
+    async def test_logs_are_paginated(self):
+        for _ in range(3):
+            await self.client.post(
+                "/api/simulation/detection",
+                json={"expected": False},
+                headers=self.admin_auth,
+            )
+
+        first_page = (
+            await self.client.get("/api/logs/?limit=2&offset=0", headers=self.admin_auth)
+        ).json()
+        self.assertEqual(first_page["total"], 3)
+        self.assertEqual(len(first_page["items"]), 2)
+
+        second_page = (
+            await self.client.get("/api/logs/?limit=2&offset=2", headers=self.admin_auth)
+        ).json()
+        self.assertEqual(len(second_page["items"]), 1)
+
+        # The pages must not overlap.
+        first_ids = {entry["id"] for entry in first_page["items"]}
+        second_ids = {entry["id"] for entry in second_page["items"]}
+        self.assertEqual(first_ids & second_ids, set())
+
+    async def test_email_must_be_unique(self):
+        await self.create_user(
+            name="First",
+            role="APP_USER",
+            email="duplicate@example.com",
+            password="first-password-123",
+        )
+        conflict = await self.client.post(
+            "/api/whitelist/",
+            json={
+                "name": "Second",
+                "role": "APP_USER",
+                "email": "duplicate@example.com",
+                "password": "second-password-123",
+            },
+            headers=self.admin_auth,
+        )
+        self.assertEqual(conflict.status_code, 409, conflict.text)
+
+    async def test_update_can_clear_optional_field(self):
+        """`exclude_unset` makes clearing a field on purpose possible."""
+        user = await self.create_user(
+            name="With Email", role="MONITORED", email="to@delete.com"
+        )
+        cleared = await self.client.put(
+            f"/api/whitelist/{user['id']}",
+            json={"email": None},
+            headers=self.admin_auth,
+        )
+        self.assertEqual(cleared.status_code, 200, cleared.text)
+        self.assertIsNone(cleared.json()["email"])
+
+    async def test_last_admin_cannot_be_deleted(self):
+        response = await self.client.delete(
+            f"/api/whitelist/{self.admin['id']}",
+            headers=self.admin_auth,
+        )
+        self.assertEqual(response.status_code, 409, response.text)
+
+
+class JournalPurgeTests(AuthenticatedApiTestCase):
+    """Bulk deletion: the only operation that destroys evidence at scale.
+
+    The guards are the point of these tests. An audit journal that can be
+    emptied by a mistyped URL is not an audit journal.
+    """
+
+    async def _simulate(self, count: int, camera_id: str = DEFAULT_CAMERA_ID) -> None:
+        for _ in range(count):
+            response = await self.client.post(
+                "/api/simulation/detection",
+                json={"expected": False, "camera_id": camera_id},
+                headers=self.admin_auth,
+            )
+            self.assertEqual(response.status_code, 201, response.text)
+
+    async def _total(self) -> int:
+        page = (await self.client.get("/api/logs/", headers=self.admin_auth)).json()
+        return page["total"]
+
+    async def test_confirmation_is_mandatory(self):
+        await self._simulate(2)
+        response = await self.client.delete("/api/logs/", headers=self.admin_auth)
+        # `confirm` is a required parameter, so its absence is a 422; supplying
+        # it as false is a deliberate refusal, which is a 400.
+        self.assertEqual(response.status_code, 422, response.text)
+
+        refused = await self.client.delete(
+            "/api/logs/?confirm=false", headers=self.admin_auth
+        )
+        self.assertEqual(refused.status_code, 400, refused.text)
+        self.assertEqual(await self._total(), 2)
+
+    async def test_invalid_filters_delete_nothing(self):
+        await self._simulate(2)
+
+        unknown_status = await self.client.delete(
+            "/api/logs/?confirm=true&status=GRANTED", headers=self.admin_auth
+        )
+        self.assertEqual(unknown_status.status_code, 422, unknown_status.text)
+
+        bad_date = await self.client.delete(
+            "/api/logs/?confirm=true&before=yesterday", headers=self.admin_auth
+        )
+        self.assertEqual(bad_date.status_code, 422, bad_date.text)
+
+        self.assertEqual(await self._total(), 2)
+
+    async def test_purge_filtered_by_camera(self):
+        await self.create_camera("cam_garage", name="Garage")
+        await self._simulate(2, camera_id=DEFAULT_CAMERA_ID)
+        await self._simulate(3, camera_id="cam_garage")
+
+        response = await self.client.delete(
+            "/api/logs/?confirm=true&camera_id=cam_garage", headers=self.admin_auth
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["deleted"], 3)
+        self.assertEqual(await self._total(), 2)
+
+    async def test_purge_everything_in_the_hub(self):
+        await self._simulate(3)
+        response = await self.client.delete("/api/logs/?confirm=true", headers=self.admin_auth)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["deleted"], 3)
+        self.assertEqual(await self._total(), 0)
+
+    async def test_purging_an_empty_journal_is_not_an_error(self):
+        response = await self.client.delete("/api/logs/?confirm=true", headers=self.admin_auth)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["deleted"], 0)
+
+    async def test_app_user_cannot_purge_the_journal(self):
+        await self._simulate(2)
+        await self.create_user(
+            name="Application User",
+            role="APP_USER",
+            email="purge@example.com",
+            password="purge-password-1",
+        )
+        token = await self.login("purge@example.com", "purge-password-1")
+
+        response = await self.client.delete(
+            "/api/logs/?confirm=true", headers=self.auth(token)
+        )
+        self.assertEqual(response.status_code, 403, response.text)
+        self.assertEqual(await self._total(), 2)
 
 
 if __name__ == "__main__":

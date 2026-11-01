@@ -14,3 +14,11 @@ pydantic==2.13.1
 # Client HTTP, necesar DOAR pentru testele automate din tests/.
 # Pe Raspberry Pi poate fi omis dacă nu rulezi teste pe dispozitiv.
 httpx==0.28.1
+
+# Autentificare.
+# bcrypt, nu o funcție hash rapidă: o parolă trebuie hash-uită cu un algoritm
+# lent în mod deliberat, cu salt unic per parolă.
+bcrypt==5.0.0
+# PyJWT, nu python-jose: mai puține dependențe și este biblioteca de referință
+# pentru JWT în Python.
+PyJWT==2.15.1

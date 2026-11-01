@@ -1,11 +1,11 @@
-"""Inspectare rapidă a bazei SQLite locale, fără niciun tool extern instalat.
+"""Quick inspection of the local SQLite database, with no external tool.
 
-Rulare (din folderul backend):
-    py -3.12 tools/inspect_db.py
+Usage (from the backend folder, with the virtual environment active):
+    python tools/inspect_db.py
 
-Scriptul doar CITEȘTE baza. Nu modifică și nu șterge nimic.
-Calea bazei poate fi suprascrisă cu variabila ACCESS_CONTROL_DB_PATH,
-exact ca în aplicația FastAPI.
+The script only READS the database. It modifies and deletes nothing.
+The database path can be overridden with the ACCESS_CONTROL_DB_PATH
+environment variable, exactly as in the FastAPI application.
 """
 
 import os
@@ -22,18 +22,21 @@ def resolve_db_path() -> Path:
 
 def main() -> None:
     db_path = resolve_db_path()
-    print(f"Bază de date: {db_path}")
+    print(f"Database: {db_path}")
 
     if not db_path.exists():
-        print("Fișierul nu există încă. Pornește backendul o dată ca să fie creat:")
-        print("  py -3.12 -m uvicorn main:app --reload --port 8000")
+        print("The file does not exist yet. Start the backend once to create it:")
+        print("  python -m uvicorn main:app --reload --port 8000")
         return
 
-    print(f"Dimensiune: {db_path.stat().st_size} bytes\n")
+    print(f"Size: {db_path.stat().st_size} bytes\n")
 
-    # mode=ro -> deschidere strict read-only, ca să nu putem strica datele din greșeală
+    # mode=ro -> strictly read-only, so the data cannot be damaged by accident
     connection = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
+
+    schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
+    print(f"Schema version: {schema_version}\n")
 
     tables = [
         row[0]
@@ -41,18 +44,18 @@ def main() -> None:
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
         )
     ]
-    print(f"Tabele: {', '.join(tables) or '(niciuna)'}\n")
+    print(f"Tables: {', '.join(tables) or '(none)'}\n")
 
     for table in tables:
         count = connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
         columns = [row["name"] for row in connection.execute(f"PRAGMA table_info({table})")]
-        print(f"--- {table}: {count} rânduri ---")
-        print(f"Coloane: {', '.join(columns)}")
+        print(f"--- {table}: {count} rows ---")
+        print(f"Columns: {', '.join(columns)}")
 
         for row in connection.execute(f"SELECT * FROM {table} LIMIT 5"):
             print("  ", dict(row))
         if count > 5:
-            print(f"   ... și încă {count - 5} rânduri")
+            print(f"   ... and {count - 5} more rows")
         print()
 
     connection.close()
