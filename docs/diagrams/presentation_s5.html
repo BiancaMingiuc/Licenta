@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<!--
+  S5 deliverable -- use case diagram + minimalist UI design.
+
+  Self-contained: open this file in a browser, or print it to PDF
+  (Ctrl+P -> Save as PDF, landscape) to hand it in.
+
+  The colours below are NOT decorative choices made for this sheet. They are
+  read from the running application's theme (frontend/src/theme/theme.ts), so
+  the mockups and the built product cannot drift apart.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>S5 &mdash; Use Case Diagram and UI Design</title>
+<style>
+  :root {
+    --primary: #2B4C7E;
+    --bg: #F7F8FA;
+    --surface: #FFFFFF;
+    --outline: #E3E6EB;
+    --ink: #1F2937;
+    --muted: #6B7280;
+
+    --known-bg: #DCF3E4;  --known-ink: #14532D;  --known-accent: #1F8A4C;
+    --alert-bg: #FDE0DF;  --alert-ink: #7F1D1D;  --alert-accent: #D32F2F;
+    --fault-bg: #FDF0D5;  --fault-ink: #78350F;  --fault-accent: #C77700;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 40px 32px 72px;
+    background: #FFFFFF;
+    color: var(--ink);
+    font: 15px/1.55 "Segoe UI", Inter, system-ui, sans-serif;
+  }
+
+  h1 { font-size: 26px; font-weight: 600; margin: 0 0 6px; }
+  h2 {
+    font-size: 18px; font-weight: 600; margin: 56px 0 4px;
+    padding-bottom: 10px; border-bottom: 1px solid var(--outline);
+  }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 8px; }
+  .note { color: var(--muted); font-size: 13px; max-width: 980px; margin: 14px 0 0; }
+
+  .diagram { margin: 24px 0 0; }
+  .diagram img { width: 100%; max-width: 1340px; height: auto; display: block; }
+
+  /* ---------- mockup sheet ---------- */
+
+  .sheet {
+    display: flex; flex-wrap: wrap; gap: 36px 30px;
+    margin-top: 28px; align-items: flex-start;
+  }
+
+  .screen { width: 308px; }
+  .screen > figcaption {
+    margin-top: 12px; font-size: 12.5px; color: var(--muted);
+  }
+  .screen > figcaption b { color: var(--ink); font-weight: 600; display: block; font-size: 13.5px; }
+
+  .phone {
+    width: 308px; height: 632px; border-radius: 30px;
+    border: 1px solid var(--outline); background: var(--bg);
+    overflow: hidden; display: flex; flex-direction: column;
+    box-shadow: 0 1px 2px rgba(16,24,40,.05), 0 8px 24px rgba(16,24,40,.06);
+  }
+
+  .statusbar {
+    height: 26px; flex: 0 0 26px; background: var(--surface);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 16px; font-size: 10px; color: var(--muted);
+  }
+
+  .appbar {
+    background: var(--surface); padding: 12px 18px 14px;
+    border-bottom: 1px solid var(--outline);
+  }
+  .appbar .t { font-size: 17px; font-weight: 600; }
+  .appbar .s { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+
+  .body { flex: 1; overflow: hidden; padding: 16px; }
+  .body.center { display: flex; flex-direction: column; justify-content: center; }
+
+  .tabs {
+    flex: 0 0 56px; background: var(--surface); border-top: 1px solid var(--outline);
+    display: flex; align-items: center;
+  }
+  .tab {
+    flex: 1; text-align: center; font-size: 10.5px; color: var(--muted);
+  }
+  .tab.on { color: var(--primary); font-weight: 600; }
+  .tab .ic {
+    display: block; width: 20px; height: 20px; margin: 0 auto 3px;
+    border: 1.8px solid currentColor; border-radius: 5px;
+  }
+  .tab.on .ic { background: #E7EDF6; }
+
+  /* form bits */
+  .field {
+    background: var(--surface); border: 1px solid var(--outline); border-radius: 10px;
+    padding: 9px 12px; margin-bottom: 12px;
+  }
+  .field .lb { font-size: 10px; color: var(--muted); }
+  .field .vl { font-size: 13.5px; margin-top: 2px; }
+  .field.focus { border-color: var(--primary); box-shadow: 0 0 0 3px #2B4C7E22; }
+
+  .btn {
+    background: var(--primary); color: #fff; border-radius: 22px;
+    text-align: center; padding: 12px; font-size: 14px; font-weight: 600;
+  }
+  .btn.ghost {
+    background: transparent; color: var(--primary);
+    border: 1.4px solid var(--primary); font-weight: 600;
+  }
+  .btn.danger { background: var(--alert-accent); }
+
+  .brand { text-align: center; margin-bottom: 26px; }
+  .brand .mark {
+    width: 54px; height: 54px; margin: 0 auto 12px; border-radius: 15px;
+    background: var(--primary); display: flex; align-items: center; justify-content: center;
+  }
+  .brand .mark svg { width: 28px; height: 28px; }
+  .brand .n { font-size: 17px; font-weight: 600; }
+  .brand .h { font-size: 12px; color: var(--muted); margin-top: 3px; }
+
+  /* journal rows */
+  .evt {
+    background: var(--surface); border: 1px solid var(--outline); border-radius: 12px;
+    padding: 11px 12px; margin-bottom: 10px; display: flex; gap: 11px;
+  }
+  .evt .dot {
+    flex: 0 0 30px; height: 30px; border-radius: 9px;
+    display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700;
+  }
+  .evt .who { font-size: 13.5px; font-weight: 600; }
+  .evt .meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .evt .chip {
+    display: inline-block; margin-top: 6px; padding: 2px 8px;
+    border-radius: 11px; font-size: 10.5px; font-weight: 600;
+  }
+  .k { background: var(--known-bg); color: var(--known-ink); }
+  .a { background: var(--alert-bg); color: var(--alert-ink); }
+  .f { background: var(--fault-bg); color: var(--fault-ink); }
+
+  .daylabel { font-size: 11px; color: var(--muted); margin: 2px 0 8px 2px; text-transform: uppercase; letter-spacing: .4px; }
+
+  .banner {
+    border-radius: 12px; padding: 12px 14px; margin-bottom: 14px;
+  }
+  .banner .ttl { font-size: 14px; font-weight: 700; }
+  .banner .dsc { font-size: 11.5px; margin-top: 3px; }
+
+  .snap {
+    height: 148px; border-radius: 12px; margin-bottom: 14px;
+    background:
+      repeating-linear-gradient(45deg, #DFE3E9 0 10px, #E8EBF0 10px 20px);
+    border: 1px solid var(--outline);
+    display: flex; align-items: flex-end; padding: 8px 10px;
+    font-size: 10px; color: #55606E;
+  }
+
+  .kv { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--outline); font-size: 12.5px; }
+  .kv span:first-child { color: var(--muted); }
+
+  /* people rows */
+  .per {
+    background: var(--surface); border: 1px solid var(--outline); border-radius: 12px;
+    padding: 11px 12px; margin-bottom: 10px; display: flex; gap: 11px; align-items: center;
+  }
+  .av {
+    flex: 0 0 34px; height: 34px; border-radius: 50%; background: #E7EDF6;
+    color: var(--primary); font-weight: 700; font-size: 13px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .per .nm { font-size: 13.5px; font-weight: 600; }
+  .per .zn { font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .role {
+    font-size: 9.5px; font-weight: 700; letter-spacing: .3px;
+    padding: 3px 7px; border-radius: 6px; background: #EEF1F6; color: #46506180;
+    color: #465061;
+  }
+  .role.admin { background: #E7EDF6; color: var(--primary); }
+
+  .zone {
+    display: flex; justify-content: space-between; align-items: center;
+    background: var(--surface); border: 1px solid var(--outline);
+    border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; font-size: 13px;
+  }
+  .sw { width: 36px; height: 20px; border-radius: 10px; background: #D5DAE2; position: relative; }
+  .sw.on { background: var(--primary); }
+  .sw i { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; }
+  .sw.on i { left: 18px; }
+
+  /* desktop frame */
+  .desktop { width: 100%; max-width: 1000px; }
+  .win {
+    border: 1px solid var(--outline); border-radius: 12px; overflow: hidden;
+    background: var(--bg); box-shadow: 0 8px 24px rgba(16,24,40,.07);
+  }
+  .winbar {
+    height: 34px; background: #EDEFF3; border-bottom: 1px solid var(--outline);
+    display: flex; align-items: center; gap: 7px; padding: 0 12px; font-size: 11px; color: var(--muted);
+  }
+  .winbar i { width: 9px; height: 9px; border-radius: 50%; background: #CBD1DA; display: block; }
+  .winbody { display: flex; min-height: 352px; }
+  .rail { flex: 0 0 186px; background: var(--surface); border-right: 1px solid var(--outline); padding: 14px 10px; }
+  .rail .it { padding: 9px 11px; border-radius: 9px; font-size: 13px; color: #465061; margin-bottom: 3px; }
+  .rail .it.on { background: #E7EDF6; color: var(--primary); font-weight: 600; }
+  .main { flex: 1; padding: 18px 22px; }
+  .main h3 { font-size: 16px; margin: 0 0 3px; font-weight: 600; }
+  .main .sb { font-size: 12px; color: var(--muted); margin-bottom: 14px; }
+  .filters { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+  .fchip { border: 1px solid var(--outline); background: var(--surface); border-radius: 16px; padding: 5px 12px; font-size: 12px; color: #465061; }
+  .fchip.on { background: #E7EDF6; border-color: #C3D1E6; color: var(--primary); font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--outline); border-radius: 10px; overflow: hidden; }
+  th, td { text-align: left; padding: 9px 12px; font-size: 12.5px; border-bottom: 1px solid var(--outline); }
+  th { background: #F3F5F8; color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }
+  tr:last-child td { border-bottom: 0; }
+
+  .rules { max-width: 1000px; margin-top: 22px; }
+  .rules li { margin-bottom: 9px; font-size: 14px; }
+  .rules b { font-weight: 600; }
+
+  @media print {
+    body { padding: 12mm; }
+    h2 { page-break-before: always; }
+    h2:first-of-type { page-break-before: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<h2>1 &nbsp;Interface design &mdash; mobile</h2>
+
+<div class="sheet">
+
+  <!-- 1. SIGN IN -->
+  <figure class="screen">
+    <div class="phone">
+      <div class="statusbar"><span>9:41</span><span>5G &nbsp;100%</span></div>
+      <div class="body center">
+        <div class="brand">
+          <div class="mark">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round">
+              <path d="M12 3l7 3v5c0 4.3-2.9 8.1-7 9-4.1-.9-7-4.7-7-9V6l7-3z"/>
+              <circle cx="12" cy="11" r="2.4"/>
+              <path d="M8.4 16.6c.9-1.4 2.1-2.1 3.6-2.1s2.7.7 3.6 2.1"/>
+            </svg>
+          </div>
+          <div class="n">Surveillance Hub</div>
+          <div class="h">HUB_001 &nbsp;&middot;&nbsp; 2 cameras online</div>
+        </div>
+        <div class="field focus">
+          <div class="lb">Email</div>
+          <div class="vl">bianca@example.com</div>
+        </div>
+        <div class="field">
+          <div class="lb">Password</div>
+          <div class="vl">&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;</div>
+        </div>
+        <div class="btn">Sign in</div>
+        <div style="text-align:center;font-size:11px;color:var(--muted);margin-top:16px;line-height:1.5">
+          Connecting to http://192.168.1.7:8000<br>Local network only &mdash; nothing leaves the hub
+        </div>
+      </div>
+    </div>
+    <figcaption><b>Sign in</b>The hub it is talking to is visible before you log in, so a wrong address is diagnosed in one second rather than in an hour.</figcaption>
+  </figure>
+
+  <!-- 2. JOURNAL -->
+  <figure class="screen">
+    <div class="phone">
+      <div class="statusbar"><span>9:41</span><span>5G &nbsp;100%</span></div>
+      <div class="appbar">
+        <div class="t">Surveillance journal</div>
+        <div class="s">142 events &nbsp;&middot;&nbsp; all cameras</div>
+      </div>
+      <div class="body">
+        <div class="daylabel">Today</div>
+
+        <div class="evt">
+          <div class="dot a" style="color:var(--alert-accent)">!</div>
+          <div>
+            <div class="who">Unrecognised person</div>
+            <div class="meta">Front Entrance &nbsp;&middot;&nbsp; 02:14 &nbsp;&middot;&nbsp; photo kept</div>
+            <span class="chip a">Alert</span>
+          </div>
+        </div>
+
+        <div class="evt">
+          <div class="dot f" style="color:var(--fault-accent)">&#9881;</div>
+          <div>
+            <div class="who">System could not evaluate</div>
+            <div class="meta">Garage &nbsp;&middot;&nbsp; 01:50 &nbsp;&middot;&nbsp; coverage incomplete</div>
+            <span class="chip f">Fault</span>
+          </div>
+        </div>
+
+        <div class="evt">
+          <div class="dot a" style="color:var(--alert-accent)">!</div>
+          <div>
+            <div class="who">Bianca &mdash; unexpected zone</div>
+            <div class="meta">Garage &nbsp;&middot;&nbsp; 23:41 &nbsp;&middot;&nbsp; identified, no photo</div>
+            <span class="chip a">Alert</span>
+          </div>
+        </div>
+
+        <div class="evt">
+          <div class="dot k" style="color:var(--known-accent)">&#10003;</div>
+          <div>
+            <div class="who">Bianca</div>
+            <div class="meta">Front Entrance &nbsp;&middot;&nbsp; 19:06 &nbsp;&middot;&nbsp; score 0.94</div>
+            <span class="chip k">Expected</span>
+          </div>
+        </div>
+
+        <div class="evt">
+          <div class="dot k" style="color:var(--known-accent)">&#10003;</div>
+          <div>
+            <div class="who">Andrei</div>
+            <div class="meta">Front Entrance &nbsp;&middot;&nbsp; 18:12 &nbsp;&middot;&nbsp; score 0.91</div>
+            <span class="chip k">Expected</span>
+          </div>
+        </div>
+      </div>
+      <div class="tabs">
+        <div class="tab on"><span class="ic"></span>Journal</div>
+        <div class="tab"><span class="ic"></span>People</div>
+        <div class="tab"><span class="ic"></span>Cameras</div>
+        <div class="tab"><span class="ic"></span>Profile</div>
+      </div>
+    </div>
+    <figcaption><b>Journal</b>Alert is red and loud, fault is amber with a tool icon. Equipment failure must never look like a break-in, or the operator learns to dismiss both.</figcaption>
+  </figure>
+
+  <!-- 3. EVENT DETAIL -->
+  <figure class="screen">
+    <div class="phone">
+      <div class="statusbar"><span>9:41</span><span>5G &nbsp;100%</span></div>
+      <div class="appbar">
+        <div class="t">&#8592;&nbsp; Event detail</div>
+        <div class="s">02:14:07 &nbsp;&middot;&nbsp; 1 November 2026</div>
+      </div>
+      <div class="body">
+        <div class="banner a">
+          <div class="ttl">&#9888;&nbsp; Unrecognised person</div>
+          <div class="dsc">The face did not match anyone enrolled. A photo was kept as evidence.</div>
+        </div>
+        <div class="snap">snapshot_02-14-07.jpg &nbsp;&middot;&nbsp; 112&times;112 crop stored</div>
+        <div class="kv"><span>Camera</span><span>Front Entrance</span></div>
+        <div class="kv"><span>Zone</span><span>cam_entrance</span></div>
+        <div class="kv"><span>Similarity</span><span>0.31 &nbsp;(threshold 0.62)</span></div>
+        <div class="kv"><span>Identity</span><span>&mdash;</span></div>
+        <div class="kv"><span>Buzzer</span><span>triggered, 3 s</span></div>
+        <div style="margin-top:16px"><div class="btn ghost">Enrol this person</div></div>
+      </div>
+    </div>
+    <figcaption><b>Event detail</b>Shows the score against the threshold, not just the verdict. A false alarm can be judged without reading the database.</figcaption>
+  </figure>
+
+  <!-- 4. PEOPLE -->
+  <figure class="screen">
+    <div class="phone">
+      <div class="statusbar"><span>9:41</span><span>5G &nbsp;100%</span></div>
+      <div class="appbar">
+        <div class="t">People</div>
+        <div class="s">3 enrolled &nbsp;&middot;&nbsp; administrator view</div>
+      </div>
+      <div class="body">
+        <div class="field" style="margin-bottom:14px">
+          <div class="vl" style="color:var(--muted)">&#128269;&nbsp; Search by name</div>
+        </div>
+
+        <div class="per">
+          <div class="av">B</div>
+          <div style="flex:1">
+            <div class="nm">Bianca</div>
+            <div class="zn">Entrance, Garage &nbsp;&middot;&nbsp; face enrolled</div>
+          </div>
+          <div class="role admin">ADMIN</div>
+        </div>
+
+        <div class="per">
+          <div class="av">A</div>
+          <div style="flex:1">
+            <div class="nm">Andrei</div>
+            <div class="zn">Entrance &nbsp;&middot;&nbsp; face enrolled</div>
+          </div>
+          <div class="role">APP_USER</div>
+        </div>
+
+        <div class="per">
+          <div class="av">M</div>
+          <div style="flex:1">
+            <div class="nm">Maria</div>
+            <div class="zn">Entrance &nbsp;&middot;&nbsp; face enrolled</div>
+          </div>
+          <div class="role">MONITORED</div>
+        </div>
+
+        <div style="margin-top:16px"><div class="btn">+&nbsp; Enrol a person</div></div>
+      </div>
+      <div class="tabs">
+        <div class="tab"><span class="ic"></span>Journal</div>
+        <div class="tab on"><span class="ic"></span>People</div>
+        <div class="tab"><span class="ic"></span>Cameras</div>
+        <div class="tab"><span class="ic"></span>Profile</div>
+      </div>
+    </div>
+    <figcaption><b>People</b>The role badge and the allowed zones are on the row itself, because &ldquo;who can be where&rdquo; is the question this screen exists to answer.</figcaption>
+  </figure>
+
+  <!-- 5. ENROL -->
+  <figure class="screen">
+    <div class="phone">
+      <div class="statusbar"><span>9:41</span><span>5G &nbsp;100%</span></div>
+      <div class="appbar">
+        <div class="t">&#8592;&nbsp; Enrol a person</div>
+        <div class="s">Step 2 of 2 &mdash; zones and role</div>
+      </div>
+      <div class="body">
+        <div class="field">
+          <div class="lb">Full name</div>
+          <div class="vl">Maria Popescu</div>
+        </div>
+
+        <div class="daylabel" style="margin-top:14px">Expected zones</div>
+        <div class="zone"><span>Front Entrance</span><span class="sw on"><i></i></span></div>
+        <div class="zone"><span>Garage</span><span class="sw"><i></i></span></div>
+
+        <div class="daylabel" style="margin-top:14px">Role</div>
+        <div class="zone"><span>MONITORED &mdash; no app access</span><span class="sw on"><i></i></span></div>
+
+        <div style="background:var(--fault-bg);color:var(--fault-ink);border-radius:10px;padding:10px 12px;font-size:11px;line-height:1.5;margin-top:14px">
+          The photo is sent to the hub, converted into a numeric vector and then
+          deleted. No image of this person is stored.
+        </div>
+
+        <div style="margin-top:14px"><div class="btn">Enrol</div></div>
+      </div>
+    </div>
+    <figcaption><b>Enrolment</b>States plainly that the photo is discarded after the embedding is computed. The privacy guarantee is in the interface, not only in the thesis.</figcaption>
+  </figure>
+
+</div>
+
+<h2>2 &nbsp;Interface design &mdash; browser (same codebase)</h2>
+
+<div class="desktop" style="margin-top:24px">
+  <div class="win">
+    <div class="winbar"><i></i><i></i><i></i><span style="margin-left:12px">localhost:8081/journal</span></div>
+    <div class="winbody">
+      <div class="rail">
+        <div class="it on">Journal</div>
+        <div class="it">People</div>
+        <div class="it">Cameras</div>
+        <div class="it">Profile</div>
+        <div style="margin-top:20px;padding:0 11px;font-size:10.5px;color:var(--muted);line-height:1.6">
+          HUB_001<br>Signed in as Bianca<br>ADMIN
+        </div>
+      </div>
+      <div class="main">
+        <h3>Surveillance journal</h3>
+        <div class="sb">142 events &middot; showing 1&ndash;5</div>
+        <div class="filters">
+          <span class="fchip on">All</span>
+          <span class="fchip">Alerts</span>
+          <span class="fchip">Faults</span>
+          <span class="fchip">Front Entrance</span>
+          <span class="fchip">Garage</span>
+          <span class="fchip">Last 24 h</span>
+        </div>
+        <table>
+          <tr><th>Time</th><th>Identity</th><th>Camera</th><th>Outcome</th><th>Photo</th></tr>
+          <tr><td>02:14</td><td>&mdash;</td><td>Front Entrance</td><td><span class="chip a">Alert &middot; unrecognised</span></td><td>kept</td></tr>
+          <tr><td>01:50</td><td>&mdash;</td><td>Garage</td><td><span class="chip f">Fault &middot; not evaluated</span></td><td>&mdash;</td></tr>
+          <tr><td>23:41</td><td>Bianca</td><td>Garage</td><td><span class="chip a">Alert &middot; unexpected zone</span></td><td>discarded</td></tr>
+          <tr><td>19:06</td><td>Bianca</td><td>Front Entrance</td><td><span class="chip k">Expected</span></td><td>&mdash;</td></tr>
+          <tr><td>18:12</td><td>Andrei</td><td>Front Entrance</td><td><span class="chip k">Expected</span></td><td>&mdash;</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,216 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1620 1400" width="1620" height="1400" font-family="Segoe UI, Inter, system-ui, sans-serif">
+
+  <!--
+    Use case diagram for the Edge AI Surveillance and Intruder Alerting System.
+    Every use case here maps to an implemented FastAPI route; the actor
+    assignment mirrors the require_admin / require_app_access guards.
+  -->
+
+  <defs>
+    <marker id="open" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="11" markerHeight="11" orient="auto">
+      <path d="M1,1 L10,6 L1,11" fill="none" stroke="#5B6472" stroke-width="1.6"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1620" height="1400" fill="#FFFFFF"/>
+
+  <text x="805" y="34" text-anchor="middle" font-size="22" font-weight="600" fill="#1F2937">Use Case Diagram &#8212; Edge AI Surveillance and Intruder Alerting System</text>
+  <text x="805" y="58" text-anchor="middle" font-size="13" fill="#6B7280">Raspberry Pi 4 edge hub &#183; FastAPI layered backend &#183; React Native client (iOS, Android, web) &#183; one hub = one tenant (hub_id)</text>
+
+  <!-- system boundary -->
+  <rect x="230" y="78" width="1150" height="1122" rx="10" fill="none" stroke="#9AA1AC" stroke-width="1.6"/>
+  <text x="248" y="100" font-size="13" font-weight="600" fill="#6B7280">Edge AI Surveillance System</text>
+
+  <!-- ===================== association lines ===================== -->
+  <g stroke="#5B6472" stroke-width="1.3" fill="none">
+    <!-- App User -> shared use cases (require_app_access) -->
+    <line x1="160" y1="250" x2="550" y2="122"/>
+    <line x1="160" y1="250" x2="550" y2="200"/>
+    <line x1="160" y1="250" x2="550" y2="278"/>
+    <line x1="160" y1="250" x2="550" y2="356"/>
+    <line x1="160" y1="250" x2="550" y2="434"/>
+    <!-- Administrator -> admin-only use cases (require_admin) -->
+    <line x1="160" y1="650" x2="550" y2="512"/>
+    <line x1="160" y1="650" x2="550" y2="590"/>
+    <line x1="160" y1="650" x2="550" y2="668"/>
+    <line x1="160" y1="650" x2="550" y2="746"/>
+    <line x1="160" y1="650" x2="550" y2="824"/>
+    <line x1="160" y1="650" x2="550" y2="902"/>
+    <!-- subject, hub, buzzer -->
+    <line x1="160" y1="1000" x2="550" y2="1000"/>
+    <line x1="1460" y1="955" x2="1060" y2="998"/>
+    <line x1="1460" y1="1140" x2="1370" y2="1132"/>
+  </g>
+
+  <!-- actor generalisation: Administrator is a specialisation of App User -->
+  <line x1="130" y1="595" x2="130" y2="372" stroke="#5B6472" stroke-width="1.3"/>
+  <polygon points="130,354 121,374 139,374" fill="#FFFFFF" stroke="#5B6472" stroke-width="1.3"/>
+  <text x="146" y="470" font-size="11" font-style="italic" fill="#6B7280">inherits every</text>
+  <text x="146" y="486" font-size="11" font-style="italic" fill="#6B7280">App User case</text>
+
+  <!-- ===================== include / extend ===================== -->
+  <g stroke="#5B6472" stroke-width="1.3" stroke-dasharray="7 5" fill="none" marker-end="url(#open)">
+    <line x1="805" y1="933" x2="805" y2="962"/>
+    <line x1="665" y1="1031" x2="495" y2="1092"/>
+    <line x1="805" y1="1034" x2="805" y2="1090"/>
+    <line x1="1120" y1="1096" x2="965" y2="1033"/>
+  </g>
+  <g font-size="11" fill="#4B5563" font-style="italic">
+    <text x="820" y="952">&#171;include&#187;</text>
+    <text x="524" y="1054">&#171;include&#187;</text>
+    <text x="820" y="1066">&#171;include&#187;</text>
+    <text x="1040" y="1054">&#171;extend&#187;</text>
+  </g>
+
+  <!-- ===================== use cases ===================== -->
+
+  <!-- Authentication -->
+  <ellipse cx="805" cy="122" rx="255" ry="31" fill="#EEF1F6" stroke="#8A94A6" stroke-width="1.5"/>
+  <text x="805" y="118" text-anchor="middle" font-size="15" fill="#1F2937">Authenticate</text>
+  <text x="805" y="136" text-anchor="middle" font-size="11" fill="#5B6472">email + password &#8594; JWT, rate-limited</text>
+
+  <ellipse cx="805" cy="200" rx="255" ry="31" fill="#EEF1F6" stroke="#8A94A6" stroke-width="1.5"/>
+  <text x="805" y="206" text-anchor="middle" font-size="15" fill="#1F2937">View own identity and role</text>
+
+  <!-- Surveillance journal -->
+  <ellipse cx="805" cy="278" rx="255" ry="31" fill="#E7F0FB" stroke="#5A8BC4" stroke-width="1.5"/>
+  <text x="805" y="274" text-anchor="middle" font-size="15" fill="#1F2937">Browse surveillance events</text>
+  <text x="805" y="292" text-anchor="middle" font-size="11" fill="#5B6472">paginated, filtered by camera</text>
+
+  <ellipse cx="805" cy="356" rx="255" ry="31" fill="#E7F0FB" stroke="#5A8BC4" stroke-width="1.5"/>
+  <text x="805" y="352" text-anchor="middle" font-size="15" fill="#1F2937">Inspect one event</text>
+  <text x="805" y="370" text-anchor="middle" font-size="11" fill="#5B6472">identity, camera, timestamp, snapshot flag</text>
+
+  <!-- Cameras -->
+  <ellipse cx="805" cy="434" rx="255" ry="31" fill="#F1EBFA" stroke="#8E6FC0" stroke-width="1.5"/>
+  <text x="805" y="440" text-anchor="middle" font-size="15" fill="#1F2937">View the hub's cameras</text>
+
+  <!-- People and permissions -->
+  <ellipse cx="805" cy="512" rx="255" ry="31" fill="#E6F4EC" stroke="#4F9B6E" stroke-width="1.5"/>
+  <text x="805" y="508" text-anchor="middle" font-size="15" fill="#1F2937">Enrol a person's face</text>
+  <text x="805" y="526" text-anchor="middle" font-size="11" fill="#5B6472">embedding computed on the backend, photo discarded</text>
+
+  <ellipse cx="805" cy="590" rx="255" ry="31" fill="#E6F4EC" stroke="#4F9B6E" stroke-width="1.5"/>
+  <text x="805" y="586" text-anchor="middle" font-size="15" fill="#1F2937">Assign allowed zones and role</text>
+  <text x="805" y="604" text-anchor="middle" font-size="11" fill="#5B6472">per-camera permissions, app access</text>
+
+  <ellipse cx="805" cy="668" rx="255" ry="31" fill="#E6F4EC" stroke="#4F9B6E" stroke-width="1.5"/>
+  <text x="805" y="674" text-anchor="middle" font-size="15" fill="#1F2937">Remove a person</text>
+
+  <!-- Cameras (admin) -->
+  <ellipse cx="805" cy="746" rx="255" ry="31" fill="#F1EBFA" stroke="#8E6FC0" stroke-width="1.5"/>
+  <text x="805" y="752" text-anchor="middle" font-size="15" fill="#1F2937">Register / update / disable a camera</text>
+
+  <!-- Journal (admin) -->
+  <ellipse cx="805" cy="824" rx="255" ry="31" fill="#E7F0FB" stroke="#5A8BC4" stroke-width="1.5"/>
+  <text x="805" y="820" text-anchor="middle" font-size="15" fill="#1F2937">Delete events / apply retention</text>
+  <text x="805" y="838" text-anchor="middle" font-size="11" fill="#5B6472">filtered, requires explicit confirmation</text>
+
+  <!-- Development only -->
+  <ellipse cx="805" cy="902" rx="255" ry="31" fill="#F3F4F6" stroke="#9AA1AC" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="805" y="898" text-anchor="middle" font-size="15" fill="#374151">Simulate a detection</text>
+  <text x="805" y="916" text-anchor="middle" font-size="11" fill="#6B7280">development and demonstration only</text>
+
+  <!-- Edge inference -->
+  <ellipse cx="805" cy="1000" rx="255" ry="34" fill="#FDF4E0" stroke="#C77700" stroke-width="2"/>
+  <text x="805" y="995" text-anchor="middle" font-size="16" font-weight="600" fill="#1F2937">Classify a detected face</text>
+  <text x="805" y="1014" text-anchor="middle" font-size="11" fill="#78350F">fail-loud &#183; KNOWN / ALERT / FAULT &#183; never raises</text>
+
+  <ellipse cx="425" cy="1130" rx="180" ry="36" fill="#FDF4E0" stroke="#C77700" stroke-width="1.5"/>
+  <text x="425" y="1126" text-anchor="middle" font-size="14" fill="#1F2937">Match embedding against</text>
+  <text x="425" y="1144" text-anchor="middle" font-size="11" fill="#5B6472">whitelist cache (cosine similarity)</text>
+
+  <ellipse cx="805" cy="1130" rx="165" ry="36" fill="#FDF4E0" stroke="#C77700" stroke-width="1.5"/>
+  <text x="805" y="1135" text-anchor="middle" font-size="14" fill="#1F2937">Record surveillance event</text>
+
+  <ellipse cx="1190" cy="1130" rx="180" ry="36" fill="#FDE0DF" stroke="#D32F2F" stroke-width="1.5"/>
+  <text x="1190" y="1126" text-anchor="middle" font-size="14" fill="#7F1D1D">Raise intruder alert</text>
+  <text x="1190" y="1144" text-anchor="middle" font-size="11" fill="#7F1D1D">keep snapshot + sound buzzer</text>
+
+  <!-- ===================== actors ===================== -->
+
+  <!-- App User -->
+  <g stroke="#2B4C7E" stroke-width="2" fill="none">
+    <circle cx="130" cy="210" r="15" fill="#EEF1F6"/>
+    <line x1="130" y1="225" x2="130" y2="268"/>
+    <line x1="106" y1="240" x2="154" y2="240"/>
+    <line x1="130" y1="268" x2="110" y2="302"/>
+    <line x1="130" y1="268" x2="150" y2="302"/>
+  </g>
+  <text x="130" y="328" text-anchor="middle" font-size="15" font-weight="600" fill="#1F2937">App User</text>
+  <text x="130" y="346" text-anchor="middle" font-size="11" fill="#6B7280">has_app_access = true</text>
+
+  <!-- Administrator -->
+  <g stroke="#2B4C7E" stroke-width="2" fill="none">
+    <circle cx="130" cy="610" r="15" fill="#EEF1F6"/>
+    <line x1="130" y1="625" x2="130" y2="668"/>
+    <line x1="106" y1="640" x2="154" y2="640"/>
+    <line x1="130" y1="668" x2="110" y2="702"/>
+    <line x1="130" y1="668" x2="150" y2="702"/>
+  </g>
+  <text x="130" y="728" text-anchor="middle" font-size="15" font-weight="600" fill="#1F2937">Administrator</text>
+  <text x="130" y="746" text-anchor="middle" font-size="11" fill="#6B7280">full control of the hub</text>
+
+  <!-- Monitored person / intruder -->
+  <g stroke="#6B7280" stroke-width="2" fill="none">
+    <circle cx="130" cy="960" r="15" fill="#F3F4F6"/>
+    <line x1="130" y1="975" x2="130" y2="1018"/>
+    <line x1="106" y1="990" x2="154" y2="990"/>
+    <line x1="130" y1="1018" x2="110" y2="1052"/>
+    <line x1="130" y1="1018" x2="150" y2="1052"/>
+  </g>
+  <text x="130" y="1078" text-anchor="middle" font-size="15" font-weight="600" fill="#374151">Monitored person</text>
+  <text x="130" y="1096" text-anchor="middle" font-size="11" fill="#6B7280">or intruder</text>
+
+  <!-- Edge AI hub -->
+  <g stroke="#C77700" stroke-width="2" fill="none">
+    <circle cx="1500" cy="915" r="15" fill="#FDF4E0"/>
+    <line x1="1500" y1="930" x2="1500" y2="973"/>
+    <line x1="1476" y1="945" x2="1524" y2="945"/>
+    <line x1="1500" y1="973" x2="1480" y2="1007"/>
+    <line x1="1500" y1="973" x2="1520" y2="1007"/>
+  </g>
+  <text x="1500" y="1033" text-anchor="middle" font-size="15" font-weight="600" fill="#1F2937">Edge AI hub</text>
+  <text x="1500" y="1051" text-anchor="middle" font-size="11" fill="#6B7280">Raspberry Pi 4, 2 GB</text>
+
+  <!-- Buzzer -->
+  <g stroke="#D32F2F" stroke-width="2" fill="none">
+    <circle cx="1500" cy="1110" r="15" fill="#FDE0DF"/>
+    <line x1="1500" y1="1125" x2="1500" y2="1168"/>
+    <line x1="1476" y1="1140" x2="1524" y2="1140"/>
+    <line x1="1500" y1="1168" x2="1480" y2="1202"/>
+    <line x1="1500" y1="1168" x2="1520" y2="1202"/>
+  </g>
+  <text x="1500" y="1228" text-anchor="middle" font-size="15" font-weight="600" fill="#1F2937">Buzzer</text>
+  <text x="1500" y="1246" text-anchor="middle" font-size="11" fill="#6B7280">GPIO actuator</text>
+
+  <!-- ===================== legend ===================== -->
+  <g font-size="12" fill="#374151">
+    <rect x="230" y="1283" width="18" height="14" fill="#EEF1F6" stroke="#8A94A6"/>
+    <text x="256" y="1295">Authentication</text>
+
+    <rect x="400" y="1283" width="18" height="14" fill="#E7F0FB" stroke="#5A8BC4"/>
+    <text x="426" y="1295">Surveillance journal</text>
+
+    <rect x="590" y="1283" width="18" height="14" fill="#E6F4EC" stroke="#4F9B6E"/>
+    <text x="616" y="1295">People and permissions</text>
+
+    <rect x="810" y="1283" width="18" height="14" fill="#F1EBFA" stroke="#8E6FC0"/>
+    <text x="836" y="1295">Cameras</text>
+
+    <rect x="950" y="1283" width="18" height="14" fill="#FDF4E0" stroke="#C77700"/>
+    <text x="976" y="1295">Edge inference</text>
+
+    <rect x="1110" y="1283" width="18" height="14" fill="#FDE0DF" stroke="#D32F2F"/>
+    <text x="1136" y="1295">Intruder alert</text>
+
+    <rect x="1250" y="1283" width="18" height="14" fill="#F3F4F6" stroke="#9AA1AC" stroke-dasharray="4 3"/>
+    <text x="1276" y="1295">Development only</text>
+  </g>
+
+  <g font-size="12" fill="#6B7280">
+    <text x="230" y="1330">&#171;include&#187; the behaviour always happens as part of the base case &#160;&#183;&#160; &#171;extend&#187; the behaviour happens only under a condition (here: an unrecognised face, or a known person in an unexpected zone)</text>
+    <text x="230" y="1352">A FAULT is deliberately kept distinct from an ALERT: equipment failure must never look like a break-in, otherwise the operator learns to dismiss both (design decision D3).</text>
+  </g>
+
+</svg>
