@@ -1,6 +1,14 @@
 # Context tehnic — Proiect de Licență Edge AI
 
-Acest document rezumă starea proiectului la 13 octombrie 2026, pentru a putea relua lucrul fără să fie nevoie de reconstruirea contextului din conversații. Descrie ce există în cod, ce a fost verificat și ce rămâne de făcut. Nu include și nu trebuie completat cu valorile din fișierul de credențiale Firebase.
+Acest document rezumă starea proiectului la 3 noiembrie 2026, pentru a putea relua lucrul fără să fie nevoie de reconstruirea contextului din conversații. Descrie ce există în cod, ce a fost veSistemul este împărțit în două planuri cu cerințe opuse:
+
+planul de decizie (cameră → embedding → comparație → alertă): local, offline, determinist, fără nicio dependență de rețea;
+planul de administrare (jurnal, înrolare, permisiuni): accesibil de la distanță printr-un canal criptat (VPN), iar indisponibilitatea lui nu afectează clasificarea detecțiilor.
+Comportamentul la eroare este fail-loud: dacă baza de date, camera sau modelul nu răspund, sistemul emite o alertă de defect, distinctă de alerta de intrus, niciodată tăcere.
+
+Tehnologii: backend FastAPI (Python 3.12) în arhitectură pe straturi (router / service / repository / schema); persistență SQLite locală cu migrări versionate; aplicație Expo + React Native + TypeScript care rulează din același cod pe iOS, Android și browser; PyTorch și OpenCV pentru inferență; C/C++, Cython și ARM NEON pentru optimizare.
+
+Protecția datelor: fotografia se păstrează exclusiv pentru persoanele neidentificate, cu retenție limitată și acces restrâns administratorului; la înrolare fotografia este distrusă după calcularea vectorului. Deciziile sunt argumentate pe principiile de minimizare a datelor, limitare a scopului și retenție limitată.rificat și ce rămâne de făcut. Proiectul Firebase și cheia lui de serviciu au fost șterse și revocate; nu mai există credențiale externe în proiect.
 
 ## Scopul proiectului
 
@@ -393,17 +401,29 @@ Licenta/
 │   │   ├── test_auth.py          # autentificare + aplicarea RBAC
 │   │   ├── test_cameras.py       # camere + validarea permisiunilor
 │   │   ├── test_detection.py     # clasificare, prag, politica de fotografii
+│   │   ├── test_journal.py       # filtre, paginare, ștergere în masă
+│   │   ├── test_people.py        # roluri, tranziții, ultimul ADMIN
 │   │   └── test_migrations.py    # mecanismul de migrare
 │   ├── tools/
 │   │   ├── create_admin.py       # creează primul ADMIN (bootstrap local)
 │   │   └── inspect_db.py         # utilitar de depanare, nu parte din aplicație
 │   └── data/                     # baza SQLite + jwt_secret.key, excluse din Git
 ├── frontend/
-│   ├── App.tsx
+│   ├── app/                      # rutele expo-router
+│   │   ├── _layout.tsx
+│   │   ├── index.tsx
+│   │   ├── login.tsx
+│   │   ├── (tabs)/               # journal, people, profile
+│   │   ├── event/[id].tsx        # detaliul unui eveniment
+│   │   └── person/               # new.tsx, [id].tsx
+│   ├── src/
+│   │   ├── api/                  # client.ts, types.ts (contract tipizat)
+│   │   ├── auth/                 # AuthContext, RoleGate, SessionGate, storage
+│   │   ├── cameras/, journal/, people/
+│   │   └── theme/theme.ts        # temă Material 3
 │   ├── app.json
-│   ├── index.ts
 │   ├── package.json
-│   └── package-lock.json
+│   └── tsconfig.json
 ├── .venv/                        # mediu virtual Python 3.12
 ├── .gitignore
 └── README.md
@@ -535,7 +555,11 @@ Repository-urile active folosesc SQLite, nu Firestore. Schema este inițializat�
 
 `POST /api/simulation/detection` creează un eveniment simulat — persoană cunoscută sau intrus — fără cameră și fără model AI, și cere rolul **ADMIN**. Pentru o persoană cunoscută este necesar un `user_id` existent, din același hub. Endpointul este destinat dezvoltării și nu constituie recunoaștere reală. Atenție: primește `expected` ca boolean de la client și îl crede, nu verifică `allowed_cameras` și nu compară niciun embedding, deci nu este un model pentru endpointul real de detecție. Restricția la ADMIN există pentru că altfel orice client ar putea falsifica jurnalul de audit.
 
-Fișierele versiunii Firestore au fost șterse din proiect. Cheia de serviciu Google care exista în `backend/firebase_credentials.json` trebuie revocată din consola Google Cloud, pentru că a existat pe disc și în istoricul local de checkpoint-uri. Nu copia secrete în cod, documentație, mesaje de eroare sau repository.
+Fișierele versiunii Firestore au fost șterse din proiect. Cheia de serviciu Google
+care exista în `backend/firebase_credentials.json` **a fost revocată de utilizatoare
+pe 3 noiembrie 2026**, iar proiectul Firebase a fost șters complet din consola
+Google Cloud. Nu copia secrete în cod, documentație, mesaje de eroare sau
+repository.
 
 SQLite permite dezvoltarea locală pe calculator și poate rula ulterior pe Pi, dar datele nu se sincronizează automat cu Firestore sau cu telefonul. Baza locală singură nu oferă acces remote, push notifications ori o aplicație frontend funcțională.
 
@@ -876,8 +900,9 @@ Testele automate, din folderul `backend`:
 python -m unittest discover -s tests -v
 ```
 
-Starea curentă: 60 de teste, toate trec (migrări, CRUD, paginare,
-autentificare, RBAC, camere, permisiuni per cameră, decizie de acces,
+Starea curentă: **105 de teste, toate trec** (rulate pe 3 noiembrie 2026 —
+migrări, CRUD, paginare, filtre de jurnal, ștergere în masă, autentificare,
+RBAC, tranziții de rol, camere, permisiuni per cameră, clasificarea detecției,
 politica de fotografii).
 
 Variabile de mediu recunoscute:
@@ -890,9 +915,13 @@ Variabile de mediu recunoscute:
 | `ACCESS_CONTROL_MATCH_THRESHOLD` | pragul de similaritate cosinus | nu (implicit 0.5, **de calibrat**) |
 | `ACCESS_CONTROL_BCRYPT_ROUNDS` | costul bcrypt; doar pentru teste | nu (implicit 12) |
 
-## Frontend — instalat, interfața încă neimplementată
+## Frontend — implementat parțial, rulează pe iOS, Android și web
 
-Frontendul este un proiect Expo cu React Native, React și TypeScript strict. `frontend/package.json` declară Expo, React Native, suport web și `expo-image-picker`, precum și scripturile:
+Frontendul este un proiect Expo cu React Native, React și TypeScript strict,
+construit cu `expo-router` (rute reale, deci URL-uri utilizabile pe web) și
+React Native Paper cu temă Material 3. Același cod rulează pe iPhone prin Expo
+Go, pe Android și în browserul laptopului — cerința de demonstrație în fața
+comisiei.
 
 ```powershell
 cd C:\Users\bianc\Desktop\Licenta\frontend
@@ -900,26 +929,67 @@ npm run start
 npm run web
 ```
 
-`frontend/App.tsx` afișează încă ecranul inițial Expo („Open up App.tsx to start working on your app!”). Nu există încă dashboard, ecrane pentru whitelist/loguri sau apeluri către API. Pachetul `expo-image-picker` este instalat, dar nu este utilizat în interfața actuală.
+Decizii de arhitectură aprobate de utilizatoare (nu luate unilateral):
+`expo-router` pentru navigare, React Native Paper pentru interfață,
+`expo-secure-store` pe telefon și `localStorage` pe web pentru token.
+Stratul de cache pentru date de server a rămas o decizie deschisă.
 
-În verificarea făcută, `npm ls --depth=0` a raportat dependențele instalate, `npm exec -- tsc --noEmit` s-a terminat fără erori, iar `npm exec -- expo config --type public` a încărcat configurația pentru Android, iOS și Web.
+**Implementat**
 
-Pentru testarea de pe un telefon, adresa API nu va fi `127.0.0.1` de pe telefon; trebuie configurată adresa IP locală a calculatorului și permis accesul în firewall. Această configurare nu este încă implementată.
+| Zonă | Fișiere | Conținut |
+|---|---|---|
+| Contract API | `frontend/src/api/client.ts`, `types.ts` | client HTTP tipizat, exclusiv transport; recuperarea token-ului este injectată, deci alegerea stocării nu atinge acest fișier |
+| Sesiune și roluri | `frontend/src/auth/` | `AuthContext`, `SessionGate` (redirect la login), `RoleGate` (un `APP_USER` nu vede butoane care răspund 403), `storage.ts` |
+| Autentificare | `frontend/app/login.tsx` | ecran de login pe baza `POST /api/auth/login` și `GET /api/auth/policy` |
+| Jurnal | `frontend/app/(tabs)/journal.tsx`, `frontend/app/event/[id].tsx`, `frontend/src/journal/` | listă paginată, bară de filtre, rând de eveniment, ecran de detaliu |
+| Persoane | `frontend/app/(tabs)/people.tsx`, `frontend/app/person/` | listă, detaliu, adăugare, editare rol și zone așteptate |
+| Profil | `frontend/app/(tabs)/profile.tsx` | identitatea contului din `GET /api/auth/me` |
+
+**Rămâne**: ecranele de camere (CRUD complet), curățarea jurnalului din
+interfață, afișarea fotografiei de intrus (depinde de ruta `GET
+/api/logs/{id}/snapshot`, care se implementează în Faza 3) și înrolarea feței
+(depinde de spike-ul de validare a modelului).
+
+Adresa backendului este configurabilă, nu scrisă fix în cod:
+`EXPO_PUBLIC_API_URL` în `frontend/.env`, inlinată de Expo la build. Pe un
+telefon fizic `127.0.0.1` este **telefonul**, nu laptopul, deci se folosește
+adresa LAN a laptopului, iar backendul se pornește cu `--host 0.0.0.0` și cu
+portul permis în firewall. `frontend/.env.example` documentează ambele cazuri.
+Configurabilitatea este cerută de decizia D1: trecerea de la LAN la VPN
+schimbă doar această variabilă, nu codul.
 
 ## Git și fișiere locale
 
-- Rădăcina `.gitignore` exclude `backend/firebase_credentials.json`.
+- Rădăcina `.gitignore` exclude `backend/firebase_credentials.json`. Regula se
+  păstrează chiar dacă Firebase a fost eliminat — costă nimic și previne o
+  reintroducere accidentală.
 - `frontend/.gitignore` exclude `node_modules`, artefactele Expo și fișiere locale de environment.
-- Fișierele `.pyc`/`__pycache__` au apărut în statusul Git ca neignorate. Ar trebui adăugate reguli Python în `.gitignore` înainte de includerea backendului în commit.
+- Fișierele `.pyc`/`__pycache__` **nu mai sunt urmărite de Git** (verificat cu
+  `git ls-files`, zero potriviri) și sunt acoperite de reguli în `.gitignore`.
+- **Cheia de serviciu Google nu a ajuns niciodată pe GitHub.** Verificat pe
+  3 noiembrie 2026: `backend/firebase_credentials.json` apare în două
+  commit-uri (`f4c5f96`, `c5fe05e`), dar `git branch -a --contains` nu
+  returnează nicio ramură și `git merge-base --is-ancestor f4c5f96 HEAD` iese
+  cu cod 1 — commit-urile nu sunt accesibile din `main` și nici din
+  `origin/main`. Trăiesc exclusiv pe refs locale
+  `refs/agents/<sesiune>/checkpoints/turn/*`, iar `git push` trimite doar
+  `refs/heads/*`. Blob-ul a rămas în object store-ul local; cheia fiind
+  revocată, nu mai are valoare. Ștergerea acelor refs plus `git gc` ar elimina
+  și copia locală, cu prețul pierderii istoricului de checkpoint-uri al
+  sesiunilor respective.
 - `README.md` conține momentan doar titlul proiectului.
 - Existența fișierelor în director nu înseamnă că sunt deja în Git; verifică `git status` și fă commit doar după ce ai exclus credențialele.
+- La 3 noiembrie 2026 există lucru necommitat: 8 fișiere modificate și 7
+  nou-apărute (`backend/tests/test_journal.py`, `backend/tests/test_people.py`,
+  ecranele de persoane și de eveniment, `RoleGate`, `SessionGate`). Commit-ul
+  îl face utilizatoarea.
 
 ## Stadiul pe faze
 
 | Fază | Stare | Detalii |
 |---|---|---|
-| 1. Backend și DB | Funcțional și securizat | FastAPI pe 3 straturi, JWT + bcrypt, RBAC aplicat prin dependențe, izolare multi-tenant din token, entitate `cameras` cu permisiuni validate, clasificare fail-loud cu prag și cache de whitelist, jurnal paginat cu ștergere în masă și invariant de coerență, migrări versionate (schema 4), 78 de teste automate. **Rămâne de validat pe Raspberry Pi** (restart, offline, wheel-uri ARM64). |
-| 2. Frontend Expo | Început | `expo-router` + React Native Paper + temă Material 3, client HTTP tipizat, stocare token (SecureStore pe telefon, localStorage pe web), ecrane: autentificare, jurnal, profil. Rulează pe iOS, Android și browser din același cod. Rămân: paginare și filtre în jurnal, ecranele de persoane și camere, înrolarea feței. |
+| 1. Backend și DB | Funcțional și securizat | FastAPI pe straturi, JWT + bcrypt, RBAC aplicat prin dependențe, izolare multi-tenant din token, entitate `cameras` cu permisiuni validate, clasificare fail-loud cu prag și cache de whitelist, jurnal paginat cu ștergere în masă și invariant de coerență, migrări versionate (schema 4). API `Edge AI Surveillance API` 0.5.0, 21 de rute, **105 teste automate, toate trec**. **Rămâne de validat pe Raspberry Pi** (restart, offline, wheel-uri ARM64). |
+| 2. Frontend Expo | Avansat | `expo-router` + React Native Paper + temă Material 3, client HTTP tipizat, stocare token (SecureStore pe telefon, localStorage pe web), gărzi de sesiune și de rol. Ecrane gata: autentificare, jurnal cu filtre și paginare, detaliu eveniment, persoane (listă, detaliu, adăugare, editare rol și zone), profil. Rulează pe iOS, Android și browser din același cod. Rămân: ecranele de camere, curățarea jurnalului din interfață, afișarea fotografiei de intrus și înrolarea feței. |
 | 3. AI și hardware | Neîncepută | Nu există încă pipeline OpenCV/Tiny-ResNet, GPIO sau baseline măsurat. Contractul de detecție și baseline-ul de potrivire (`matching.py`) există deja, deci bucla de cadre are unde să se conecteze. Include deciziile D1 (Tailscale/WireGuard) și D2 (fotografie doar pentru persoană neidentificată), calibrarea pragului, buzzer-ul pe GPIO, modulul RTC, și agregarea detecțiilor consecutive într-un singur eveniment. |
 | 4. Optimizări C/C++ | Neîncepută | Nu există încă extensie Cython/C++, IM2COL pe blocuri, cache blocking, NEON sau layer fusion. |
 
@@ -929,7 +999,9 @@ Rezolvate: autentificarea, aplicarea RBAC, `response_model` (scurgerea
 `embedding`), paginarea jurnalului, CORS restrâns, semantica `UserUpdate`
 (`exclude_unset`), entitatea `cameras` cu validarea permisiunilor,
 endpointul de detecție fail-loud, ștergerea în masă a jurnalului cu gărzile
-ei, și invariantul de coerență status/identitate. Rămân, în ordinea
+ei, invariantul de coerență status/identitate, curățarea fișierelor `.pyc` din
+Git, și **revocarea cheii de serviciu Google împreună cu ștergerea proiectului
+Firebase** (3 noiembrie 2026, de către utilizatoare). Rămân, în ordinea
 dependențelor:
 
 1. **`HTTPException` este ridicat în straturile service pentru utilizatori,
@@ -956,13 +1028,7 @@ dependențelor:
 5. **Ruta `/api/detection/evaluate` nu are autentificare de mașină.** Cere
    rolul ADMIN, adică o identitate de om. Un nod de cameră separat are nevoie
    de un token de dispozitiv, revocabil independent.
-6. **Două fișiere `.pyc` sunt încă urmărite de Git**
-   (`backend/__pycache__/*.pyc`), intrate înainte de regula din
-   `.gitignore`; necesită `git rm --cached`.
-7. **Cheia de serviciu Google nu a fost revocată.** Fișierul a fost șters,
-   dar cheia poate fi activă în continuare în Google Cloud. Doar
-   utilizatoarea are acces în consolă.
-8. **Nimic nu a fost validat pe Raspberry Pi**: persistență după restart,
+6. **Nimic nu a fost validat pe Raspberry Pi**: persistență după restart,
    funcționare fără internet, disponibilitatea wheel-urilor pe ARM64.
 
 ## Plan: persistență locală și operare offline
@@ -990,11 +1056,12 @@ Păstrează contractele routerelor și serviciilor, dar înlocuiește repository
 
 Inițializează schema printr-o migrare explicită la pornire sau printr-o comandă administrativă. Folosește tranzacții pentru operațiile care trebuie să fie atomice. Nu schimba API-ul frontendului fără motiv: rutele curente pentru whitelist și loguri pot continua să existe, deși backendul își schimbă implementarea de persistență.
 
-### Etapa 3 — migrează datele existente o singură dată
+### Etapa 3 — migrarea datelor din Firestore: nu mai este aplicabilă
 
-Dacă există utilizatori/loguri în Firestore care trebuie păstrați, scrie un instrument separat de import, rulat intenționat cât timp există conexiune. Importă și verifică numărul de înregistrări și câmpurile obligatorii, păstrează ID-urile relevante dacă nu produc coliziuni și evită duplicatele la o rerulare. După import, aplicația de pe Pi trebuie să funcționeze fără inițializarea Firebase.
-
-Nu pune credențialele Firebase pe dispozitiv pentru execuția offline. Păstrează fișierul secret exclus din Git și nu include conținutul lui în loguri sau documentație.
+Etapa a devenit inutilă. Proiectul Firebase a fost **șters complet** și cheia
+de serviciu **revocată** pe 3 noiembrie 2026, deci nu mai există date de
+importat și nicio credențială de pus pe dispozitiv. Secțiunea se păstrează doar
+ca urmă a deciziei; nu se implementează nimic aici.
 
 ### Etapa 4 — verifică CRUD-ul și funcționarea fără rețea
 
@@ -1018,9 +1085,15 @@ Scrie rezultatul fiecărei detecții în jurnalul SQLite, inclusiv pentru fețel
 
 Documentează locația bazei, backup-ul, restaurarea și migrarea versiunilor de schemă. Folosește permisiuni de sistem de operare restrictive pentru fișierul SQLite și backup-uri. Verifică spațiul disponibil și comportamentul la oprire neașteptată. WAL poate fi evaluat pentru acces concurent, dar trebuie folosit împreună cu backup corect (nu copia doar fișierul principal cât timp baza este activă).
 
-### Sincronizarea cu Firebase — opțională, nu parte din MVP offline
+### Sincronizarea cu Firebase — abandonată definitiv
 
-Dacă ulterior se cere replicarea în cloud, trateaz-o ca un strat separat: coadă/outbox locală cu ID-uri de operații stabile, retry cu backoff, idempotency și politică explicită de rezolvare a conflictelor. Accesul, decizia facială și logarea locală nu trebuie să aștepte sincronizarea. Dacă obiectivul rămâne strict zero-cloud, nu implementa acest strat.
+Nu se implementează. Proiectul Firebase a fost șters și cheia revocată, iar
+obiectivul rămâne strict zero-cloud: decizia de clasificare, jurnalul și
+alerta locală nu au voie să depindă de un serviciu extern. Dacă vreodată s-ar
+cere replicare în cloud, ea ar fi un strat separat (coadă outbox locală cu
+ID-uri de operații stabile, retry cu backoff, idempotency, politică explicită
+de conflicte), niciodată pe calea de decizie — dar ar contrazice obiectivul
+declarat al lucrării.
 
 ## Următorii pași recomandați
 
@@ -1030,14 +1103,11 @@ endpointul de detecție fail-loud sunt **implementate** — vezi secțiunile
 „Autentificare, RBAC și izolare multi-tenant" și „Clasificarea detecției".
 Primul ADMIN este creat, iar camera implicită `cam_entrance` există.
 
-1. **Jurnalul complet în Expo**: paginare, filtre pe cameră/rezultat/dată,
-   ecran de detaliu eveniment. Folosește rute care există deja și este
-   ecranul arătat la fiecare demonstrație.
-2. **Restul ecranelor Expo**: persoane monitorizate (listă, detaliu, editare
-   rol și zone), camere (CRUD complet), curățarea jurnalului, și gărzi de rol
-   în interfață, ca un `APP_USER` să nu vadă butoane care răspund 403.
-   Decizie încă deschisă: stratul de date (bibliotecă de cache sau cod scris
-   de mână), necesar înainte de ecranele care **modifică** date.
+1. **Restul ecranelor Expo**: camere (CRUD complet) și curățarea jurnalului din
+   interfață. Jurnalul cu paginare și filtre, ecranul de detaliu al unui
+   eveniment, persoanele monitorizate (listă, detaliu, editare rol și zone) și
+   gărzile de rol sunt **implementate**. Decizie încă deschisă: stratul de
+   cache pentru date de server (bibliotecă sau cod scris de mână).
 3. **Spike de validare a modelului pe laptop**, înainte de a cumpăra hardware:
    detecție față, normalizare 112×112×3, embedding, și verificarea pe 20-30 de
    fotografii că similaritatea cosinus separă corect „aceeași persoană" de

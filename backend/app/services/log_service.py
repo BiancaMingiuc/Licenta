@@ -18,6 +18,56 @@ MAX_PAGE_SIZE = 500
 DEFAULT_PAGE_SIZE = 100
 
 
+def validate_status_filter(status: Optional[str]) -> Optional[str]:
+    """Reject a status that is not part of the detection vocabulary.
+
+    Shared by listing and purging rather than written twice. A value this
+    layer does not recognise is refused instead of being passed to SQL, where
+    it would match nothing: a filter that silently returns an empty page is
+    indistinguishable from a quiet period, and on an audit journal that is the
+    difference between "no intruders" and "your filter was misspelled".
+    """
+    if status is None:
+        return None
+    if status not in DetectionReason.__args__:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Unknown status filter. Allowed values: "
+                + ", ".join(DetectionReason.__args__)
+            ),
+        )
+    return status
+
+
+def normalise_timestamp_bound(value: Optional[str], field: str) -> Optional[str]:
+    """Validate a date bound and return it in the stored format.
+
+    Accepts a plain date ("2026-10-20") or a full ISO-8601 timestamp. A plain
+    date is treated as midnight UTC, so a bound expressed as a date always
+    falls on a day boundary rather than part-way through a day.
+
+    Validating here matters: an unparseable value compared as a string would
+    silently match nothing, or everything, and the operator would believe the
+    filter had been applied.
+    """
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Invalid '{field}' value. Use a date (2026-10-20) or an "
+                "ISO-8601 timestamp (2026-10-20T14:30:00Z)."
+            ),
+        ) from None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 class LogService:
     def __init__(self) -> None:
         self.repo = LogRepository()
@@ -28,6 +78,9 @@ class LogService:
         hub_id: str,
         camera_id: Optional[str] = None,
         restrict_to_user_id: Optional[str] = None,
+        status: Optional[str] = None,
+        since: Optional[str] = None,
+        before: Optional[str] = None,
         limit: int = DEFAULT_PAGE_SIZE,
         offset: int = 0,
     ) -> dict[str, Any]:
@@ -37,28 +90,81 @@ class LogService:
         only their own events. The parameter is a primitive rather than an
         authentication object, so the service stays callable from the Edge AI
         loop on the Raspberry Pi, which speaks no HTTP and has no session.
+
+        The filters are validated and then applied in SQL. ``total`` therefore
+        counts the FILTERED set, not the whole journal -- without that the UI
+        would page through a total it is not showing.
         """
         limit = max(1, min(limit, MAX_PAGE_SIZE))
         offset = max(0, offset)
 
-        items = self.repo.get_all_by_hub(
-            hub_id=hub_id,
-            camera_id=camera_id,
-            user_id=restrict_to_user_id,
-            limit=limit,
-            offset=offset,
-        )
-        total = self.repo.count_by_hub(
-            hub_id=hub_id,
-            camera_id=camera_id,
-            user_id=restrict_to_user_id,
-        )
+        status = validate_status_filter(status)
+        normalised_since = normalise_timestamp_bound(since, "since")
+        normalised_before = normalise_timestamp_bound(before, "before")
+
+        if (
+            normalised_since is not None
+            and normalised_before is not None
+            and normalised_since >= normalised_before
+        ):
+            # An inverted range always returns nothing. Refusing it names the
+            # mistake instead of showing an empty journal, which the operator
+            # would read as "no events in this period".
+            raise HTTPException(
+                status_code=422,
+                detail="'since' must be earlier than 'before'; this range is empty.",
+            )
+
+        filters = {
+            "hub_id": hub_id,
+            "camera_id": camera_id,
+            "user_id": restrict_to_user_id,
+            "status": status,
+            "since": normalised_since,
+            "before": normalised_before,
+        }
+
+        items = self.repo.get_all_by_hub(**filters, limit=limit, offset=offset)
+        total = self.repo.count_by_hub(**filters)
         return {
             "items": items,
             "total": total,
             "limit": limit,
             "offset": offset,
         }
+
+    def get_log(
+        self,
+        doc_id: str,
+        hub_id: str,
+        restrict_to_user_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """One journal entry, for the event detail screen.
+
+        Needed so a detail view can load from its own URL. Without it the
+        screen would only work when reached from the list, and reloading the
+        page -- or opening a shared link -- would show nothing.
+
+        An entry outside the caller's hub, or belonging to another person when
+        the caller is an APP_USER, answers 404 rather than 403. A 403 would
+        confirm that the id exists, which is itself information: an APP_USER
+        could enumerate ids and learn how many events the hub recorded.
+        """
+        entry = self.repo.get_by_id(doc_id)
+        if not entry or entry["hub_id"] != hub_id:
+            raise HTTPException(status_code=404, detail="Journal entry not found.")
+        if restrict_to_user_id is not None and entry.get("user_id") != restrict_to_user_id:
+            raise HTTPException(status_code=404, detail="Journal entry not found.")
+        return entry
+
+    def get_journal_cameras(self, hub_id: str) -> list[str]:
+        """Camera ids present in this hub's journal, for the filter control.
+
+        Taken from the journal rather than from the camera registry because a
+        deleted camera keeps its recorded events: offering only registered
+        cameras would make those events unreachable by filter.
+        """
+        return self.repo.distinct_cameras(hub_id)
 
     def create_log(self, log: LogCreate, hub_id: Optional[str] = None) -> dict[str, Any]:
         """Write one journal entry, refusing a self-contradictory one.
@@ -138,6 +244,10 @@ class LogService:
         With ``before``, this is also the mechanism behind the retention
         policy required by decision D2 (automatic removal after 7-30 days). A
         scheduled job on the Pi calls exactly this method.
+
+        The filters are validated by the SAME functions the listing uses, so
+        an operator who previews a purge by listing it with those filters sees
+        exactly the set that will be removed.
         """
         if not confirm:
             raise HTTPException(
@@ -148,16 +258,8 @@ class LogService:
                 ),
             )
 
-        if status is not None and status not in DetectionReason.__args__:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    "Unknown status filter. Allowed values: "
-                    + ", ".join(DetectionReason.__args__)
-                ),
-            )
-
-        normalised_before = self._normalise_before(before)
+        status = validate_status_filter(status)
+        normalised_before = normalise_timestamp_bound(before, "before")
 
         result = self.repo.delete_many_by_hub(
             hub_id=hub_id,
@@ -174,31 +276,3 @@ class LogService:
                 "before": normalised_before,
             },
         }
-
-    @staticmethod
-    def _normalise_before(before: Optional[str]) -> Optional[str]:
-        """Validate the ``before`` bound and return it in the stored format.
-
-        Accepts a plain date ("2026-10-20") or a full ISO-8601 timestamp. A
-        plain date is treated as midnight UTC, so "before 2026-10-20" excludes
-        that whole day rather than part of it.
-
-        Validating here matters: an unparseable value compared as a string
-        would silently match nothing, or everything, and the operator would
-        believe the purge had run correctly.
-        """
-        if not before:
-            return None
-        try:
-            parsed = datetime.fromisoformat(before.replace("Z", "+00:00"))
-        except ValueError:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    "Invalid 'before' value. Use a date (2026-10-20) or an "
-                    "ISO-8601 timestamp (2026-10-20T14:30:00Z)."
-                ),
-            ) from None
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")

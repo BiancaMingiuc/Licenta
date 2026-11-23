@@ -26,11 +26,14 @@ import type {
   CameraUpdate,
   CurrentUser,
   DetectionResult,
+  JournalFilterOptions,
   LoginResponse,
+  LogEntry,
   LogPage,
   LogQuery,
   Person,
   PersonCreate,
+  PersonDetail,
   PersonUpdate,
   PurgeQuery,
   PurgeResult,
@@ -239,16 +242,29 @@ export const auth = {
 export const people = {
   list: () => request<Person[]>('/api/whitelist/'),
 
-  get: (id: string) => request<Person>(`/api/whitelist/${id}`),
+  /**
+   * One person WITH their surveillance history.
+   *
+   * The backend answers with `UserDetail`, which carries `logs`; the listing
+   * route answers with `UserPublic`, which does not. The return type says so,
+   * because a screen that silently received an empty history would look like
+   * a person who had never been seen.
+   */
+  get: (id: string) => request<PersonDetail>(`/api/whitelist/${encodeURIComponent(id)}`),
 
   create: (person: PersonCreate) =>
     request<Person>('/api/whitelist/', { method: 'POST', body: person }),
 
   update: (id: string, changes: PersonUpdate) =>
-    request<Person>(`/api/whitelist/${id}`, { method: 'PUT', body: changes }),
+    request<Person>(`/api/whitelist/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: changes,
+    }),
 
   remove: (id: string) =>
-    request<{ message: string }>(`/api/whitelist/${id}`, { method: 'DELETE' }),
+    request<{ message: string }>(`/api/whitelist/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
 };
 
 // -- cameras ----------------------------------------------------------------
@@ -272,12 +288,26 @@ export const logs = {
   list: (query: LogQuery = {}) =>
     request<LogPage>('/api/logs/', { query: { ...query } }),
 
+  /**
+   * One event by id.
+   *
+   * Exists so the detail screen can load from its own URL rather than only
+   * from data handed to it by the list. Without it, reloading the page on web
+   * -- or opening a shared link -- would show an empty screen.
+   */
+  get: (id: string) => request<LogEntry>(`/api/logs/${encodeURIComponent(id)}`),
+
+  /** Values worth offering in the filter control. */
+  filterOptions: () => request<JournalFilterOptions>('/api/logs/filter-options'),
+
   /** Bulk delete. Irreversible; the backend refuses it without confirm=true. */
   purge: (query: PurgeQuery) =>
     request<PurgeResult>('/api/logs/', { method: 'DELETE', query: { ...query } }),
 
   remove: (id: string) =>
-    request<{ message: string }>(`/api/logs/${id}`, { method: 'DELETE' }),
+    request<{ message: string }>(`/api/logs/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
 };
 
 // -- detection --------------------------------------------------------------

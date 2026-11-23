@@ -91,7 +91,31 @@ export interface PersonCreate {
   embedding?: number[];
 }
 
-export type PersonUpdate = Partial<PersonCreate>;
+export type PersonUpdate = Partial<Omit<PersonCreate, 'embedding'>> & {
+  /**
+   * Sent as `null` to delete the enrolled face while keeping the person and
+   * their history.
+   *
+   * The backend uses `model_dump(exclude_unset=True)`, so it distinguishes
+   * "field not sent" from "sent as null". That distinction is what makes
+   * biometric erasure possible without deleting the audit trail: the face
+   * vector goes, the recorded events stay.
+   */
+  embedding?: number[] | null;
+};
+
+/**
+ * One person together with their surveillance history, from
+ * `GET /api/whitelist/{id}` (`user_schema.UserDetail`).
+ *
+ * Kept as a separate type rather than an optional field on `Person`, because
+ * the listing route genuinely does not return logs. A screen that needs the
+ * history has to load the detail route, and the compiler says so instead of
+ * the array silently being empty.
+ */
+export interface PersonDetail extends Person {
+  logs: LogEntry[];
+}
 
 // -- cameras ----------------------------------------------------------------
 
@@ -143,10 +167,39 @@ export interface LogPage {
   offset: number;
 }
 
+/**
+ * Query of `GET /api/logs/`.
+ *
+ * Every field here is applied by the DATABASE, not by the client over an
+ * already-loaded page. That distinction is the reason these exist at all: the
+ * list is paginated, so filtering the loaded rows would describe only those
+ * rows while `total` still counted the rest -- the screen would claim "3
+ * events" out of hundreds.
+ *
+ * `since` is inclusive, `before` is exclusive, so two adjacent ranges neither
+ * overlap nor leave a gap.
+ */
 export interface LogQuery {
   camera_id?: string;
+  status?: DetectionReason;
+  /** A date (2026-10-20) or an ISO-8601 timestamp. Inclusive. */
+  since?: string;
+  /** A date (2026-10-20) or an ISO-8601 timestamp. Exclusive. */
+  before?: string;
   limit?: number;
   offset?: number;
+}
+
+/**
+ * From `GET /api/logs/filter-options`.
+ *
+ * `cameras` comes from the journal rather than the camera registry, so a
+ * camera that was deleted but still has recorded events stays reachable by
+ * filter.
+ */
+export interface JournalFilterOptions {
+  cameras: string[];
+  statuses: DetectionReason[];
 }
 
 /** Filters of `DELETE /api/logs/`. `confirm` is mandatory server-side. */

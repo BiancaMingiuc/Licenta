@@ -90,6 +90,22 @@ class LogPage(BaseModel):
     offset: int
 
 
+class JournalFilterOptions(BaseModel):
+    """What the journal filter control can offer.
+
+    ``cameras`` comes from the journal itself, not from the camera registry: a
+    camera deleted from the registry keeps its recorded events, and a filter
+    that could not reach them would hide evidence rather than narrow it.
+
+    ``statuses`` is sent even though the client already knows the vocabulary,
+    so a reason added to the backend appears in the filter without shipping a
+    new build of the app.
+    """
+
+    cameras: List[str] = Field(default_factory=list)
+    statuses: List[str] = Field(default_factory=list)
+
+
 class SimulatedDetection(BaseModel):
     """Input of the simulation endpoint, used during development only."""
 
